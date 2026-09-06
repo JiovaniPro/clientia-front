@@ -1,0 +1,70 @@
+import type { LucideIcon } from "lucide-react";
+import { AlarmClock, Bell, CalendarDays, History, Home, Phone, Users } from "lucide-react";
+
+/**
+ * Source unique des destinations de navigation, consommée à la fois par `SideRail`
+ * (rail latéral) et `CommandPalette` (Cmd+K) — avant le lot 4 les deux composants
+ * dupliquaient cette liste indépendamment, avec le même gap dans les deux : un item
+ * restait visible même sans la permission qui protège son endpoint (ex. "Journal"
+ * visible pour un Agent RDV sans `calls.view`, qui obtenait un 403 propre au clic
+ * plutôt qu'un lien simplement absent). `permission` déclare la ou les clés requises
+ * pour VOIR l'item (sémantique OR sur un tableau, comme `requireAnyPermission` côté
+ * backend) ; omis = accessible à tout utilisateur connecté. Grandira avec chaque lot.
+ */
+export interface NavItem {
+  href: string;
+  label: string;
+  /** Phrase affichée dans la palette de commandes (Cmd+K) pour cette destination. */
+  paletteLabel: string;
+  icon: LucideIcon;
+  permission?: string | string[];
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { href: "/", label: "Aujourd'hui", paletteLabel: "Aller à l'accueil", icon: Home },
+  { href: "/calls", label: "Appels", paletteLabel: "Aller à la file d'appels", icon: Phone, permission: "calls.view" },
+  {
+    href: "/history",
+    label: "Journal",
+    paletteLabel: "Aller au journal des appels",
+    icon: History,
+    permission: "calls.view",
+  },
+  {
+    href: "/clients",
+    label: "Dossiers",
+    paletteLabel: "Aller à mes dossiers clients",
+    icon: Users,
+    permission: "clients.view",
+  },
+  {
+    href: "/calendar-pro",
+    label: "Calendrier",
+    paletteLabel: "Aller au calendrier",
+    icon: CalendarDays,
+    permission: "calendar.view",
+  },
+  {
+    href: "/reminders",
+    label: "Rappels",
+    paletteLabel: "Aller à mes rappels",
+    icon: AlarmClock,
+    permission: "reminders.view",
+  },
+  {
+    href: "/notifications",
+    label: "Notifications",
+    paletteLabel: "Aller à mes notifications",
+    icon: Bell,
+    permission: "notifications.view",
+  },
+];
+
+export function isNavItemVisible(
+  permission: string | string[] | undefined,
+  hasPermission: (key: string) => boolean,
+): boolean {
+  if (!permission) return true;
+  const keys = Array.isArray(permission) ? permission : [permission];
+  return keys.some(hasPermission);
+}

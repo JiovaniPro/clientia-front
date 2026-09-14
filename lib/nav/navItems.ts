@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { AlarmClock, Bell, CalendarDays, History, Home, Phone, Users } from "lucide-react";
+import { AlarmClock, Bell, CalendarDays, History, Home, KeyRound, Phone, Shield, Users } from "lucide-react";
 
 /**
  * Source unique des destinations de navigation, consommée à la fois par `SideRail`
@@ -57,6 +57,27 @@ export const NAV_ITEMS: NavItem[] = [
     paletteLabel: "Aller à mes notifications",
     icon: Bell,
     permission: "notifications.view",
+  },
+  {
+    href: "/admin/users",
+    label: "Utilisateurs",
+    paletteLabel: "Aller à l'administration des utilisateurs",
+    icon: Shield,
+    /**
+     * Volontairement `users.view` seul — pas le OR `["clients.view", "users.view"]`
+     * de l'endpoint `GET /users` (qui sert aussi l'annuaire léger des sélecteurs).
+     * Sinon un Agent calliste/RDV (qui a `clients.view` mais jamais `users.view` par
+     * défaut) verrait apparaître une entrée d'administration à laquelle il n'a en
+     * réalité aucun accès d'écriture.
+     */
+    permission: "users.view",
+  },
+  {
+    href: "/admin/roles",
+    label: "Rôles & permissions",
+    paletteLabel: "Aller à l'administration des rôles et permissions",
+    icon: KeyRound,
+    permission: "roles.manage",
   },
 ];
 

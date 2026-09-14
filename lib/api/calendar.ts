@@ -107,6 +107,63 @@ export interface CalendarEventDTO {
    * côté serveur, pas la liste complète des participants (voir `getEvent` pour ça).
    */
   hasPendingInvitation?: boolean;
+  /**
+   * Sous-lot C4 — présent sur `listEvents` (grille) : pire sévérité parmi les
+   * conflits NON résolus de cet événement, ou `null` s'il n'y en a aucun. Jamais
+   * calculé sur une occurrence virtuelle d'un événement récurrent (voir
+   * modules/calendar/service.ts::listEvents côté backend — limitation assumée,
+   * héritée du sous-lot B qui ne calculait déjà les conflits que sur l'événement
+   * modèle, pas chaque occurrence recalculée).
+   */
+  conflictSeverity?: ConflictSeverity | null;
+  /** Présent uniquement sur `getEvent` (détail) — fusion de conflictsA/conflictsB. */
+  conflicts?: EventConflictDTO[];
+}
+
+export type ConflictSeverity = "INFO" | "WARNING" | "CRITICAL";
+
+export interface EventConflictDTO {
+  id: string;
+  otherEvent: { id: string; title: string; startAt: string; endAt: string };
+  severity: ConflictSeverity;
+  overlapMinutes: number;
+  isResolved: boolean;
+  resolvedAt: string | null;
+  resolvedBy: { id: string; firstName: string | null; lastName: string | null } | null;
+}
+
+/**
+ * Sous-lot C4 — décision actée : accessible à quiconque peut écrire sur au moins
+ * un des deux événements de la paire (pas seulement l'organisateur de celui dont
+ * le panneau est ouvert) ; le backend vérifie les deux côtés, pas cette route.
+ */
+export function resolveConflict(eventId: string, conflictId: string, accessToken: string) {
+  return apiClient.patch<EventConflictDTO>(`/calendar-events/${eventId}/conflicts/${conflictId}/resolve`, {}, accessToken);
+}
+
+export interface SuggestSlotsParams {
+  durationMinutes: number;
+  preferredDate: string;
+  calendarId?: string;
+  workStartHour?: number;
+  workEndHour?: number;
+}
+
+export interface SuggestedSlotDTO {
+  startAt: string;
+  endAt: string;
+}
+
+/**
+ * Sous-lot C4 — heures de travail : si absentes ici, le backend lit le `Setting`
+ * `calendar.workingHours` de l'utilisateur (repli 8h-18h) ; passées ici, elles ne
+ * persistent pas (override ponctuel de cet appel uniquement).
+ */
+export function suggestSlots(params: SuggestSlotsParams, accessToken: string) {
+  return apiClient.get<SuggestedSlotDTO[]>(
+    `/calendar-events/suggest-slots${buildQuery(params as unknown as Record<string, string | number | boolean | undefined>)}`,
+    accessToken,
+  );
 }
 
 export type AttendeeRole = "REQUIRED" | "OPTIONAL" | "ORGANIZER";

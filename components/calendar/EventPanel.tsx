@@ -12,12 +12,15 @@ import { ApiError } from "@/lib/api/client";
 import type {
   AttendeeRole,
   CalendarEventDTO,
+  ConflictSeverity,
   CreateEventInput,
   EventAttendeeDTO,
   EventCategoryDTO,
+  EventConflictDTO,
   EventReminderDTO,
   EventType,
   ReminderMethod,
+  SuggestedSlotDTO,
 } from "@/lib/api/calendar";
 import {
   addAttendee,
@@ -32,6 +35,8 @@ import {
   listEventCategories,
   listReminders,
   removeAttendee,
+  resolveConflict,
+  suggestSlots,
   updateAttendeeStatus,
   updateEvent,
 } from "@/lib/api/calendar";
@@ -72,6 +77,18 @@ const ATTENDEE_STATUS_CLASS: Record<EventAttendeeDTO["status"], string> = {
   DELEGATED: "text-ink-muted",
 };
 
+const CONFLICT_SEVERITY_LABEL: Record<ConflictSeverity, string> = {
+  INFO: "Information",
+  WARNING: "Avertissement",
+  CRITICAL: "Critique",
+};
+
+const CONFLICT_SEVERITY_CLASS: Record<ConflictSeverity, string> = {
+  INFO: "text-status-info",
+  WARNING: "text-status-warning",
+  CRITICAL: "text-status-danger",
+};
+
 const REMINDER_METHOD_LABEL: Record<ReminderMethod, string> = {
   POPUP: "Popup (application)",
   EMAIL: "E-mail",
@@ -103,7 +120,6 @@ interface EventPanelProps {
    */
   prefill?: { title: string; callId: string; agentRdvId?: string };
   calendarId: string;
-  canWrite: boolean;
   canDelete: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -122,22 +138,32 @@ export function EventPanel({
   initialStart,
   prefill,
   calendarId,
-  canWrite,
   canDelete,
   onClose,
   onSaved,
   onDeleted,
 }: EventPanelProps) {
-  const { authedFetch, user } = useAuth();
+  const { authedFetch, user, hasPermission } = useAuth();
   const isEdit = Boolean(event);
-  /**
-   * Sous-lot C3 — décision actée : un rappel concerne l'organisateur uniquement
-   * (pas de diffusion aux participants). `canWrite` (organisateur OU agent RDV OU
-   * calendar.viewAll) est une gate plus large que celle-ci, volontairement — gérer
-   * les rappels de quelqu'un d'autre n'a pas de sens même pour qui peut éditer
-   * l'événement.
-   */
   const isOrganizer = Boolean(event && user && event.organizerId === user.id);
+  /**
+   * Sous-lot C4 — bug trouvé en testant en direct avec Robin RDV (simple invité,
+   * ni organisateur ni agent RDV assigné) sur un événement d'Alix Admin : le
+   * formulaire entier apparaissait éditable (champs actifs, bouton Enregistrer
+   * visible), alors que le backend rejette bien toute écriture avec 403
+   * (`assertCanWriteEvent`) — pas une faille de sécurité, mais une interface
+   * trompeuse. Cause : la prop `canWrite` reçue de calendar-pro/page.tsx
+   * (`canUpdate = hasPermission("calendar.update")`) ne reflète QUE le rôle de
+   * l'utilisateur, jamais sa relation à CET événement précis — un commentaire
+   * antérieur (sous-lot C3, juste au-dessus dans l'historique) présumait à tort
+   * que `canWrite` valait déjà "organisateur OU agent RDV OU calendar.viewAll".
+   * Recalculé ici avec les données déjà en main plutôt que de faire confiance à la
+   * prop — pré-existant, pas introduit par C4, mais corrigé en le trouvant en
+   * testant la résolution de conflit (qui en héritait directement).
+   */
+  const canWriteThisEvent = Boolean(
+    event && user && (isOrganizer || event.agentRdvId === user.id || hasPermission("calendar.viewAll")),
+  );
 
   const defaultStart = event ? new Date(event.startAt) : (initialStart ?? new Date());
   const defaultEnd = event ? new Date(event.endAt) : new Date(defaultStart.getTime() + 60 * 60_000);
@@ -171,6 +197,10 @@ export function EventPanel({
   const [newReminderMinutes, setNewReminderMinutes] = useState("15");
   const [newReminderMethod, setNewReminderMethod] = useState<ReminderMethod>("POPUP");
   const [isAddingReminder, setIsAddingReminder] = useState(false);
+  const [conflicts, setConflicts] = useState<EventConflictDTO[]>([]);
+  const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
+  const [suggestedSlots, setSuggestedSlots] = useState<SuggestedSlotDTO[] | null>(null);
+  const [isSuggestingSlots, setIsSuggestingSlots] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -216,10 +246,60 @@ export function EventPanel({
   useEffect(() => {
     if (!isEdit || !event) return;
     authedFetch((token) => getEvent(event.id, token))
-      .then((full) => setAttendees(full.attendees ?? []))
+      .then((full) => {
+        setAttendees(full.attendees ?? []);
+        setConflicts(full.conflicts ?? []);
+      })
       .catch(() => setError("Impossible de charger les participants."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, event?.id, authedFetch]);
+
+  async function handleResolveConflict(conflictId: string) {
+    if (!event) return;
+    setError(null);
+    setResolvingConflictId(conflictId);
+    try {
+      const resolved = await authedFetch((token) => resolveConflict(event.id, conflictId, token));
+      setConflicts((prev) => prev.map((c) => (c.id === conflictId ? resolved : c)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de résoudre ce conflit.");
+    } finally {
+      setResolvingConflictId(null);
+    }
+  }
+
+  /**
+   * Sous-lot C4 — durée dérivée des champs Début/Fin déjà remplis, date préférée =
+   * date du champ Début. Cliquer une suggestion remplit directement Début/Fin.
+   */
+  async function handleSuggestSlots() {
+    if (!startAt || !endAt) return;
+    const durationMinutes = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
+    if (durationMinutes < 1) {
+      setError("Renseignez d'abord une durée valide (fin après début) avant de suggérer des créneaux.");
+      return;
+    }
+    setError(null);
+    setIsSuggestingSlots(true);
+    setSuggestedSlots(null);
+    try {
+      const slots = await authedFetch((token) =>
+        suggestSlots({ durationMinutes, preferredDate: new Date(startAt).toISOString() }, token),
+      );
+      setSuggestedSlots(slots);
+      if (slots.length === 0) setError("Aucun créneau libre trouvé dans les prochains jours ouvrés.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de calculer des suggestions de créneaux.");
+    } finally {
+      setIsSuggestingSlots(false);
+    }
+  }
+
+  function applySuggestedSlot(slot: SuggestedSlotDTO) {
+    setStartAt(toDatetimeLocal(new Date(slot.startAt)));
+    setEndAt(toDatetimeLocal(new Date(slot.endAt)));
+    setSuggestedSlots(null);
+  }
 
   /**
    * Réservé à l'organisateur (403 backend sinon) — on n'appelle même pas
@@ -501,7 +581,7 @@ export function EventPanel({
     }
   }
 
-  const readOnly = isEdit && !canWrite;
+  const readOnly = isEdit && !canWriteThisEvent;
 
   return (
     <Modal title={isEdit ? "Modifier l'événement" : "Nouvel événement"} onClose={onClose}>
@@ -543,6 +623,39 @@ export function EventPanel({
           <Input label="Début" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} disabled={readOnly} required />
           <Input label="Fin" type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} disabled={readOnly} required />
         </div>
+
+        {!readOnly ? (
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              className="self-start text-xs font-medium text-forest-600 hover:underline disabled:opacity-60"
+              onClick={handleSuggestSlots}
+              disabled={isSuggestingSlots}
+            >
+              {isSuggestingSlots ? "Recherche de créneaux…" : "Suggérer des créneaux"}
+            </button>
+            <p className="text-xs text-ink-muted">
+              Cherche jusqu'à 5 créneaux libres de la même durée que Début/Fin ci-dessus, à partir de la date de
+              début, sur vos jours ouvrés (heures de travail par défaut 8h-18h).
+            </p>
+            {suggestedSlots && suggestedSlots.length > 0 ? (
+              <ul className="flex flex-col gap-1">
+                {suggestedSlots.map((slot) => (
+                  <li key={slot.startAt}>
+                    <button
+                      type="button"
+                      className="w-full rounded-md border border-border bg-surface-subtle px-2.5 py-1.5 text-left text-sm text-ink hover:border-forest-600"
+                      onClick={() => applySuggestedSlot(slot)}
+                    >
+                      {new Date(slot.startAt).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })} –{" "}
+                      {new Date(slot.endAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-medium text-ink" htmlFor="event-description">
@@ -825,6 +938,49 @@ export function EventPanel({
           </div>
         ) : null}
 
+        {isEdit && event && conflicts.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-ink">Conflits d'agenda</label>
+            <ul className="flex flex-col gap-1.5">
+              {conflicts.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface-subtle px-2.5 py-1.5 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className={`truncate font-medium ${CONFLICT_SEVERITY_CLASS[c.severity]}`}>
+                      {CONFLICT_SEVERITY_LABEL[c.severity]} — {c.overlapMinutes} min de chevauchement
+                    </p>
+                    <p className="truncate text-xs text-ink-muted">
+                      Avec « {c.otherEvent.title} »{" "}
+                      {new Date(c.otherEvent.startAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                      {c.isResolved ? (
+                        <span className="ml-1 text-forest-600">
+                          — résolu
+                          {c.resolvedBy ? ` par ${`${c.resolvedBy.firstName ?? ""} ${c.resolvedBy.lastName ?? ""}`.trim() || "un utilisateur"}` : ""}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  {!c.isResolved && canWriteThisEvent ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs font-medium text-forest-600 hover:underline disabled:opacity-60"
+                      onClick={() => handleResolveConflict(c.id)}
+                      disabled={resolvingConflictId === c.id}
+                    >
+                      {resolvingConflictId === c.id ? "…" : "Marquer résolu"}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-ink-muted">
+              Un conflit n'empêche jamais la création ou la modification de l'événement — il est seulement signalé.
+            </p>
+          </div>
+        ) : null}
+
         {isEdit && event && isOrganizer ? (
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-ink">Rappels</label>
@@ -877,7 +1033,7 @@ export function EventPanel({
               <p className="text-xs text-ink-muted">{REMINDER_METHOD_HELP[newReminderMethod]}</p>
             </div>
           </div>
-        ) : isEdit && event && canWrite ? (
+        ) : isEdit && event && canWriteThisEvent ? (
           <p className="text-xs text-ink-muted">Seul l'organisateur peut gérer les rappels de cet événement.</p>
         ) : null}
 
@@ -921,7 +1077,11 @@ export function EventPanel({
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-between gap-2 pt-2">
-          {isEdit && canDelete ? (
+          {/* `canDelete` = permission de rôle seule (calendar.delete) ; le backend
+              exige EN PLUS la propriété de l'événement (assertCanWriteEvent, même
+              gate que l'écriture) — même bug que canWriteThisEvent ci-dessus,
+              corrigé ici pour la même raison. */}
+          {isEdit && canDelete && canWriteThisEvent ? (
             <Button variant="danger" onClick={handleDelete} disabled={isSubmitting}>
               Supprimer
             </Button>

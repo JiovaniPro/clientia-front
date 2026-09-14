@@ -36,6 +36,29 @@ export const TYPE_LABEL: Record<EventType, string> = {
   REMINDER_EVENT: "Rappel",
 };
 
+/**
+ * Sous-lot C4 — anneau de bordure pour la sévérité de conflit (décision actée),
+ * distinct des 3 canaux déjà en place (fond = type, liseré gauche 3px = catégorie,
+ * pastille de coin = invitation en attente). Composé manuellement dans le même
+ * `boxShadow` inline que le liseré de catégorie (pas via les classes `ring-*` de
+ * Tailwind, qui poseraient leur propre `box-shadow` et se feraient écraser par le
+ * style inline existant) : une couche "espacement" à la couleur de fond de la
+ * carte pour garantir un anneau visible même quand la sévérité partage la même
+ * teinte que le type de l'événement (ex. MEETING est déjà bleu = --color-status-
+ * info, la même couleur qu'un conflit INFO) — vérifié en capture avant livraison.
+ */
+const CONFLICT_SEVERITY_COLOR: Record<"INFO" | "WARNING" | "CRITICAL", string> = {
+  INFO: "var(--color-status-info)",
+  WARNING: "var(--color-status-warning)",
+  CRITICAL: "var(--color-status-danger)",
+};
+
+const CONFLICT_SEVERITY_LABEL: Record<"INFO" | "WARNING" | "CRITICAL", string> = {
+  INFO: "Conflit — information",
+  WARNING: "Conflit — avertissement",
+  CRITICAL: "Conflit — critique",
+};
+
 function minutesSinceRangeStart(date: Date): number {
   return (date.getHours() - RANGE_START_HOUR) * 60 + date.getMinutes();
 }
@@ -322,7 +345,17 @@ function DayColumn({
           return (
             <div
               key={event.id}
-              className="absolute overflow-hidden"
+              /**
+               * Sous-lot C4 — bug trouvé en vérifiant l'anneau de conflit en direct :
+               * `overflow-hidden` ici (bornes identiques à celles du bouton, aucune
+               * marge) rognait tout ce qui dépasse la boîte du bouton — pas seulement
+               * le nouvel anneau, mais aussi la pastille d'invitation en attente
+               * (sous-lot A/C, `-right-1 -top-1`) qui était donc déjà invisible en
+               * pratique avant ce correctif. Le bouton a déjà son propre
+               * `overflow-hidden` (troncature du titre) : celui du wrapper ne servait
+               * à rien d'observable, seulement à rogner les indicateurs en débordement.
+               */
+              className="absolute"
               style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%`, zIndex: isDragging ? 50 : 10 + col }}
             >
               <button
@@ -341,14 +374,23 @@ function DayColumn({
                 )}
                 style={{
                   backgroundColor: TYPE_COLOR[event.type],
-                  // Liseré de catégorie (sous-lot C1) — accent secondaire, le fond reste
-                  // piloté par le type d'événement (signal principal déjà en place).
-                  boxShadow: category ? `inset 3px 0 0 ${category.borderColor}` : undefined,
+                  // Liseré de catégorie (sous-lot C1) + anneau de conflit (sous-lot C4),
+                  // composés dans le même box-shadow — le fond reste piloté par le type.
+                  boxShadow:
+                    [
+                      category ? `inset 3px 0 0 ${category.borderColor}` : null,
+                      event.conflictSeverity
+                        ? `0 0 0 2px ${TYPE_COLOR[event.type]}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || undefined,
                 }}
                 title={[
                   event.title,
                   category ? `Catégorie : ${category.name}` : null,
                   event.hasPendingInvitation ? "Invitation en attente de votre réponse" : null,
+                  event.conflictSeverity ? CONFLICT_SEVERITY_LABEL[event.conflictSeverity] : null,
                 ]
                   .filter(Boolean)
                   .join(" — ")}

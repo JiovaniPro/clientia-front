@@ -367,7 +367,6 @@ function CalendarProContent() {
           initialStart={panel.mode === "create" ? panel.start : undefined}
           prefill={panel.mode === "create" ? panel.prefill : undefined}
           calendarId={myCalendar?.id ?? ""}
-          canWrite={canUpdate}
           canDelete={canDelete}
           onClose={closePanel}
           onSaved={handleSaved}

@@ -13,15 +13,22 @@ export interface ReminderDTO {
   status: ReminderStatus;
   createdAt: string;
   updatedAt: string;
+  /** §5.19 — résolu côté backend pour la colonne "Agent" en vue reminders.viewAll. */
+  user: { id: string; firstName: string | null; lastName: string | null } | null;
 }
 
 export interface ListRemindersFilters {
   status?: ReminderStatus;
   from?: string;
   to?: string;
+  /** §5.19 — ignoré sans reminders.viewAll ; même avec elle, exclut structurellement
+   * les rappels personnels d'un autre utilisateur, voir modules/reminders/service.ts. */
+  userId?: string;
 }
 
-/** §5.9 — toujours scopé au créateur côté backend (pas de vue "tous les rappels"), voir modules/reminders/service.ts. */
+/** §5.9/§5.19 — scopé au créateur par défaut ; avec reminders.viewAll, inclut aussi
+ * les rappels LIÉS (callId non nul) de toute l'organisation, jamais les personnels
+ * des autres — voir modules/reminders/service.ts. */
 export function listReminders(filters: ListRemindersFilters, accessToken: string) {
   return apiClient.get<ReminderDTO[]>(
     `/reminders${buildQuery(filters as Record<string, string | number | boolean | undefined>)}`,

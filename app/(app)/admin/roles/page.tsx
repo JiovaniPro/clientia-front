@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { RoleFormModal } from "@/components/admin/RoleFormModal";
 import type { PermissionDTO, RoleDetailDTO } from "@/lib/api/roles";
 import { deleteRole, listPermissionsCatalog, listRolesDetailed } from "@/lib/api/roles";
@@ -73,6 +74,56 @@ export default function AdminRolesPage() {
     }
   }
 
+  const columns: AdminTableColumn<RoleDetailDTO>[] = [
+    {
+      header: "Rôle",
+      className: "text-ink",
+      cell: (r) => (
+        <>
+          <StatusBadge label={r.name} color={r.color} />
+          {r.isSystem ? <span className="ml-1.5 text-xs text-ink-faint">(système)</span> : null}
+        </>
+      ),
+    },
+    { header: "Description", className: "text-ink-muted", cell: (r) => r.description ?? "—" },
+    { header: "Permissions", className: "text-ink-muted", cell: (r) => r.permissions.length },
+    { header: "Utilisateurs", className: "text-ink-muted", cell: (r) => r._count.users },
+    {
+      header: "",
+      className: "text-right",
+      cell: (r) => {
+        const isPendingDelete = pendingDeleteId === r.id;
+        const canDelete = !r.isSystem && r._count.users === 0;
+        return (
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="text-xs font-medium text-forest-600 hover:underline"
+              onClick={() => setModal({ mode: "edit", role: r })}
+            >
+              Modifier
+            </button>
+            <button
+              type="button"
+              className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
+              onClick={() => handleDelete(r)}
+              disabled={isPendingDelete || !canDelete}
+              title={
+                r.isSystem
+                  ? "Les rôles système ne peuvent pas être supprimés"
+                  : r._count.users > 0
+                    ? "Ce rôle est encore assigné à des utilisateurs"
+                    : undefined
+              }
+            >
+              Supprimer
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-8">
       <header className="flex items-center justify-between">
@@ -88,70 +139,13 @@ export default function AdminRolesPage() {
           {notice}
         </p>
       ) : null}
-      {error ? <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">{error}</p> : null}
+      {error ? (
+        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
+          {error}
+        </p>
+      ) : null}
 
-      <div className="rounded-lg border border-border bg-surface shadow-flat">
-        {isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
-        ) : roles.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucun rôle.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">Rôle</th>
-                <th className="px-4 py-2.5 font-medium">Description</th>
-                <th className="px-4 py-2.5 font-medium">Permissions</th>
-                <th className="px-4 py-2.5 font-medium">Utilisateurs</th>
-                <th className="px-4 py-2.5 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {roles.map((r) => {
-                const isPendingDelete = pendingDeleteId === r.id;
-                const canDelete = !r.isSystem && r._count.users === 0;
-                return (
-                  <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
-                    <td className="px-4 py-2.5 text-ink">
-                      <StatusBadge label={r.name} color={r.color} />
-                      {r.isSystem ? <span className="ml-1.5 text-xs text-ink-faint">(système)</span> : null}
-                    </td>
-                    <td className="px-4 py-2.5 text-ink-muted">{r.description ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{r.permissions.length}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{r._count.users}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex justify-end gap-3">
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-forest-600 hover:underline"
-                          onClick={() => setModal({ mode: "edit", role: r })}
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-                          onClick={() => handleDelete(r)}
-                          disabled={isPendingDelete || !canDelete}
-                          title={
-                            r.isSystem
-                              ? "Les rôles système ne peuvent pas être supprimés"
-                              : r._count.users > 0
-                                ? "Ce rôle est encore assigné à des utilisateurs"
-                                : undefined
-                          }
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <AdminTable columns={columns} rows={roles} rowKey={(r) => r.id} isLoading={isLoading} emptyMessage="Aucun rôle." />
 
       {modal ? (
         <RoleFormModal

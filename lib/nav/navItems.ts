@@ -1,5 +1,20 @@
 import type { LucideIcon } from "lucide-react";
-import { AlarmClock, Bell, CalendarDays, History, Home, KeyRound, Phone, Shield, Users } from "lucide-react";
+import {
+  AlarmClock,
+  BarChart3,
+  Bell,
+  Building2,
+  CalendarDays,
+  History,
+  Home,
+  KeyRound,
+  LineChart,
+  ListChecks,
+  Phone,
+  Shield,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 
 /**
  * Source unique des destinations de navigation, consommée à la fois par `SideRail`
@@ -59,6 +74,15 @@ export const NAV_ITEMS: NavItem[] = [
     permission: "notifications.view",
   },
   {
+    href: "/my-stats",
+    label: "Mes statistiques",
+    paletteLabel: "Aller à mes statistiques",
+    icon: LineChart,
+    // §5.17 — accès à ses propres stats (Agent calliste/RDV inclus) ; le sélecteur
+    // d'agent dans l'écran lui-même n'apparaît qu'avec reports.viewAll en plus.
+    permission: "reports.view",
+  },
+  {
     href: "/admin/users",
     label: "Utilisateurs",
     paletteLabel: "Aller à l'administration des utilisateurs",
@@ -78,6 +102,36 @@ export const NAV_ITEMS: NavItem[] = [
     paletteLabel: "Aller à l'administration des rôles et permissions",
     icon: KeyRound,
     permission: "roles.manage",
+  },
+  {
+    href: "/admin/configurable-lists",
+    label: "Listes configurables",
+    paletteLabel: "Aller à l'administration des listes configurables",
+    icon: ListChecks,
+    permission: "configurableLists.manage",
+  },
+  {
+    href: "/admin/custom-fields",
+    label: "Champs personnalisés",
+    paletteLabel: "Aller à l'administration des champs personnalisés",
+    icon: SlidersHorizontal,
+    permission: "customFields.manage",
+  },
+  {
+    href: "/admin/organization",
+    label: "Organisation",
+    paletteLabel: "Aller aux paramètres de l'organisation",
+    icon: Building2,
+    permission: "organization.manageSettings",
+  },
+  {
+    href: "/admin/dashboard",
+    label: "Tableau de bord",
+    paletteLabel: "Aller au tableau de bord",
+    icon: BarChart3,
+    // §5.15 — vue globale de l'organisation, réservée à reports.viewAll. La vue
+    // individuelle ("mes statistiques", §5.17) est un écran séparé sur reports.view.
+    permission: "reports.viewAll",
   },
 ];
 

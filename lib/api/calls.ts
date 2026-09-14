@@ -26,6 +26,8 @@ export interface CallDTO {
   updatedAt: string;
   /** Ajouté au lot 3 pour le §P0.2 : présence d'un dossier sans requête supplémentaire par ligne. */
   client: { id: string } | null;
+  /** §5.18 — nom de l'agent, résolu côté backend (colonne "Agent" du Journal). */
+  user: { id: string; firstName: string | null; lastName: string | null } | null;
 }
 
 export interface ListCallsResponse {
@@ -44,6 +46,8 @@ export interface ListCallsFilters {
   from?: string;
   to?: string;
   search?: string;
+  /** §5.18 — ignoré côté backend sans calls.viewAll, voir modules/calls/service.ts. */
+  userId?: string;
   /** "queue" = vague → nom → prénom (§P0.2, "À appeler") ; "recent" (défaut) = plus récent d'abord (Journal). */
   sort?: "recent" | "queue";
   page?: number;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { UserFormModal } from "@/components/admin/UserFormModal";
 import type { RoleListItemDTO } from "@/lib/api/roles";
 import { listRoles } from "@/lib/api/roles";
@@ -95,6 +96,66 @@ export default function AdminUsersPage() {
     }
   }
 
+  const columns: AdminTableColumn<UserListItemDTO>[] = [
+    {
+      header: "Nom",
+      className: "text-ink",
+      cell: (u) => (
+        <>
+          {personLabel(u)}
+          {u.id === currentUser?.id ? <span className="ml-1.5 text-xs text-ink-faint">(vous)</span> : null}
+        </>
+      ),
+    },
+    { header: "E-mail", className: "text-ink-muted", cell: (u) => u.email },
+    { header: "Rôle", className: "text-ink-muted", cell: (u) => u.role.name },
+    {
+      header: "Statut",
+      cell: (u) => (
+        <StatusBadge
+          label={u.isActive ? "Actif" : "Inactif"}
+          color={u.isActive ? "var(--color-forest-600)" : "var(--color-ink-faint)"}
+        />
+      ),
+    },
+    {
+      header: "",
+      className: "text-right",
+      cell: (u) => {
+        const isSelf = u.id === currentUser?.id;
+        const isPending = pendingActionId === u.id;
+        return (
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="text-xs font-medium text-forest-600 hover:underline"
+              onClick={() => setModal({ mode: "edit", user: u })}
+            >
+              Modifier
+            </button>
+            <button
+              type="button"
+              className="text-xs font-medium text-forest-600 hover:underline disabled:opacity-50"
+              onClick={() => handleResetPassword(u)}
+              disabled={isPending}
+            >
+              Réinitialiser le mot de passe
+            </button>
+            <button
+              type="button"
+              className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
+              onClick={() => handleToggleStatus(u)}
+              disabled={isPending || (isSelf && u.isActive)}
+              title={isSelf && u.isActive ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
+            >
+              {u.isActive ? "Désactiver" : "Activer"}
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-8">
       <header className="flex items-center justify-between">
@@ -110,78 +171,13 @@ export default function AdminUsersPage() {
           {notice}
         </p>
       ) : null}
+      {error ? (
+        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
+          {error}
+        </p>
+      ) : null}
 
-      <div className="rounded-lg border border-border bg-surface shadow-flat">
-        {error ? (
-          <p className="p-6 text-sm text-status-danger">{error}</p>
-        ) : isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
-        ) : users.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucun utilisateur.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">Nom</th>
-                <th className="px-4 py-2.5 font-medium">E-mail</th>
-                <th className="px-4 py-2.5 font-medium">Rôle</th>
-                <th className="px-4 py-2.5 font-medium">Statut</th>
-                <th className="px-4 py-2.5 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const isSelf = u.id === currentUser?.id;
-                const isPending = pendingActionId === u.id;
-                return (
-                  <tr key={u.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
-                    <td className="px-4 py-2.5 text-ink">
-                      {personLabel(u)}
-                      {isSelf ? <span className="ml-1.5 text-xs text-ink-faint">(vous)</span> : null}
-                    </td>
-                    <td className="px-4 py-2.5 text-ink-muted">{u.email}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{u.role.name}</td>
-                    <td className="px-4 py-2.5">
-                      <StatusBadge
-                        label={u.isActive ? "Actif" : "Inactif"}
-                        color={u.isActive ? "var(--color-forest-600)" : "var(--color-ink-faint)"}
-                      />
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex justify-end gap-3">
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-forest-600 hover:underline"
-                          onClick={() => setModal({ mode: "edit", user: u })}
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-forest-600 hover:underline disabled:opacity-50"
-                          onClick={() => handleResetPassword(u)}
-                          disabled={isPending}
-                        >
-                          Réinitialiser le mot de passe
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-                          onClick={() => handleToggleStatus(u)}
-                          disabled={isPending || (isSelf && u.isActive)}
-                          title={isSelf && u.isActive ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
-                        >
-                          {u.isActive ? "Désactiver" : "Activer"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <AdminTable columns={columns} rows={users} rowKey={(u) => u.id} isLoading={isLoading} emptyMessage="Aucun utilisateur." />
 
       {modal ? (
         <UserFormModal

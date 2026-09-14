@@ -11,7 +11,14 @@ import type { CallDTO, CallType, ListCallsFilters } from "@/lib/api/calls";
 import { listCalls } from "@/lib/api/calls";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
+import type { UserListItemDTO } from "@/lib/api/users";
+import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+
+function personLabel(p: { firstName: string | null; lastName: string | null } | null | undefined, fallback: string) {
+  if (!p) return fallback;
+  return `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || fallback;
+}
 
 const PAGE_SIZE = 25;
 const CALL_TYPES: CallType[] = ["PROSPECTION", "SUPPORT", "FOLLOW_UP", "OTHER"];
@@ -29,9 +36,11 @@ function formatOccurredAt(iso: string) {
  * n'est volontairement pas proposé dans ce filtre — c'est le rôle de "À appeler").
  */
 export default function CallHistoryPage() {
-  const { authedFetch } = useAuth();
+  const { authedFetch, hasPermission } = useAuth();
+  const canViewAll = hasPermission("calls.viewAll");
 
   const [statuses, setStatuses] = useState<ConfigurableListItemDTO[]>([]);
+  const [agents, setAgents] = useState<UserListItemDTO[]>([]);
   const [calls, setCalls] = useState<CallDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -43,6 +52,7 @@ export default function CallHistoryPage() {
   const [waveNumber, setWaveNumber] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
 
@@ -62,6 +72,15 @@ export default function CallHistoryPage() {
       .catch(() => setError("Impossible de charger les statuts."));
   }, [authedFetch]);
 
+  useEffect(() => {
+    // §5.18 — la liste des agents (pour le filtre) n'a de sens qu'avec calls.viewAll ;
+    // sans elle, le backend ignorerait de toute façon un userId choisi ici.
+    if (!canViewAll) return;
+    authedFetch((token) => listUsers({}, token))
+      .then(setAgents)
+      .catch(() => {});
+  }, [canViewAll, authedFetch]);
+
   const fetchCalls = useCallback(async () => {
     if (!neutralStatusKey) return;
     setIsLoading(true);
@@ -76,6 +95,7 @@ export default function CallHistoryPage() {
       ...(from ? { from: new Date(from).toISOString() } : {}),
       ...(to ? { to: new Date(to).toISOString() } : {}),
       ...(search ? { search } : {}),
+      ...(agentId ? { userId: agentId } : {}),
     };
     try {
       const response = await authedFetch((token) => listCalls(filters, token));
@@ -86,7 +106,7 @@ export default function CallHistoryPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [authedFetch, page, neutralStatusKey, statusKey, type, waveNumber, from, to, search]);
+  }, [authedFetch, page, neutralStatusKey, statusKey, type, waveNumber, from, to, search, agentId]);
 
   useEffect(() => {
     fetchCalls();
@@ -94,7 +114,7 @@ export default function CallHistoryPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [statusKey, type, waveNumber, from, to, search]);
+  }, [statusKey, type, waveNumber, from, to, search, agentId]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -133,6 +153,17 @@ export default function CallHistoryPage() {
             </option>
           ))}
         </Select>
+        {canViewAll ? (
+          <Select label="Agent" value={agentId} onChange={(e) => setAgentId(e.target.value)} className="w-48">
+            <option value="">Tous</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {personLabel(a, a.email)}
+                {!a.isActive ? " (inactif)" : ""}
+              </option>
+            ))}
+          </Select>
+        ) : null}
         <Input
           label="Vague"
           type="number"
@@ -160,6 +191,7 @@ export default function CallHistoryPage() {
                 <th className="px-4 py-2.5 font-medium">Téléphone</th>
                 <th className="px-4 py-2.5 font-medium">Type</th>
                 <th className="px-4 py-2.5 font-medium">Statut</th>
+                {canViewAll ? <th className="px-4 py-2.5 font-medium">Agent</th> : null}
                 <th className="px-4 py-2.5 font-medium">Le</th>
                 <th className="px-4 py-2.5 font-medium" />
               </tr>
@@ -178,6 +210,9 @@ export default function CallHistoryPage() {
                   <td className="px-4 py-2.5">
                     <StatusBadge label={call.status.label} color={call.status.color} />
                   </td>
+                  {canViewAll ? (
+                    <td className="px-4 py-2.5 text-ink-muted">{personLabel(call.user, "—")}</td>
+                  ) : null}
                   <td className="px-4 py-2.5 text-ink-muted">{formatOccurredAt(call.occurredAt)}</td>
                   <td className="px-4 py-2.5 text-right">
                     <Button size="sm" variant="ghost" onClick={() => setDetailCallId(call.id)}>

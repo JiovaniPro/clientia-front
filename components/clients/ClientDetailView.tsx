@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { SendEmailModal } from "@/components/clients/SendEmailModal";
 
 const LIST_KEYS = [
   "CLIENT_DOSSIER_STATUS",
@@ -57,6 +58,8 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
   const [finalStatusSaving, setFinalStatusSaving] = useState(false);
   const [finalStatusError, setFinalStatusError] = useState<string | null>(null);
   const [finalStatusSuccess, setFinalStatusSuccess] = useState(false);
+
+  const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
 
   function loadClientIntoForm(c: ClientDetailDTO) {
     setClient(c);
@@ -160,16 +163,34 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-8">
-      <div className="space-y-1">
-        <Link href="/clients" className="text-sm text-ink-muted hover:text-ink">
-          ← Mes dossiers
-        </Link>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.8</p>
-        <h1 className="font-display text-2xl font-bold text-ink">
-          {client.firstName || client.lastName ? `${client.firstName ?? ""} ${client.lastName ?? ""}`.trim() : "Dossier"}
-        </h1>
-        <p className="font-mono text-sm text-forest-600">{client.phoneNumber}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Link href="/clients" className="text-sm text-ink-muted hover:text-ink">
+            ← Mes dossiers
+          </Link>
+          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.8</p>
+          <h1 className="font-display text-2xl font-bold text-ink">
+            {client.firstName || client.lastName
+              ? `${client.firstName ?? ""} ${client.lastName ?? ""}`.trim()
+              : "Dossier"}
+          </h1>
+          <p className="font-mono text-sm text-forest-600">{client.phoneNumber}</p>
+        </div>
+        {user?.permissions.includes("emails.send") ? (
+          <Button variant="secondary" onClick={() => setIsSendEmailOpen(true)}>
+            Envoyer un e-mail
+          </Button>
+        ) : null}
       </div>
+
+      {isSendEmailOpen ? (
+        <SendEmailModal
+          clientId={client.id}
+          clientEmail={client.email}
+          onClose={() => setIsSendEmailOpen(false)}
+          onSent={() => {}}
+        />
+      ) : null}
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-flat">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">

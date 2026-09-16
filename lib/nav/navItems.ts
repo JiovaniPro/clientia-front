@@ -10,6 +10,7 @@ import {
   KeyRound,
   LineChart,
   ListChecks,
+  Mail,
   Phone,
   Shield,
   SlidersHorizontal,
@@ -116,6 +117,13 @@ export const NAV_ITEMS: NavItem[] = [
     paletteLabel: "Aller à l'administration des champs personnalisés",
     icon: SlidersHorizontal,
     permission: "customFields.manage",
+  },
+  {
+    href: "/admin/emails",
+    label: "Modèles d'e-mail",
+    paletteLabel: "Aller à l'administration des modèles d'e-mail",
+    icon: Mail,
+    permission: "emails.manageTemplates",
   },
   {
     href: "/admin/organization",

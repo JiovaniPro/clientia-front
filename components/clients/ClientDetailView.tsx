@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -12,6 +13,7 @@ import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
 import { SendEmailModal } from "@/components/clients/SendEmailModal";
 
 const LIST_KEYS = [
@@ -39,6 +41,7 @@ function personLabel(p: { firstName: string | null; lastName: string | null } | 
 
 export function ClientDetailView({ clientId }: { clientId: string }) {
   const { user, authedFetch } = useAuth();
+  const router = useRouter();
   const [client, setClient] = useState<ClientDetailDTO | null>(null);
   const [lists, setLists] = useState<Lists | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +63,7 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
   const [finalStatusSuccess, setFinalStatusSuccess] = useState(false);
 
   const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   function loadClientIntoForm(c: ClientDetailDTO) {
     setClient(c);
@@ -176,12 +180,27 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
           </h1>
           <p className="font-mono text-sm text-forest-600">{client.phoneNumber}</p>
         </div>
-        {user?.permissions.includes("emails.send") ? (
-          <Button variant="secondary" onClick={() => setIsSendEmailOpen(true)}>
-            Envoyer un e-mail
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {user?.permissions.includes("emails.send") ? (
+            <Button variant="secondary" onClick={() => setIsSendEmailOpen(true)}>
+              Envoyer un e-mail
+            </Button>
+          ) : null}
+          {user?.permissions.includes("clients.delete") ? (
+            <Button variant="ghost" onClick={() => setIsDeleteOpen(true)}>
+              Supprimer
+            </Button>
+          ) : null}
+        </div>
       </div>
+
+      {isDeleteOpen ? (
+        <DeleteClientDialog
+          clientId={client.id}
+          onClose={() => setIsDeleteOpen(false)}
+          onDeleted={() => router.push("/clients")}
+        />
+      ) : null}
 
       {isSendEmailOpen ? (
         <SendEmailModal

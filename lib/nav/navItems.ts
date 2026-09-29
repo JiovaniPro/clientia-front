@@ -120,10 +120,13 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/emails",
-    label: "Modèles d'e-mail",
-    paletteLabel: "Aller à l'administration des modèles d'e-mail",
+    label: "E-mails",
+    paletteLabel: "Aller aux modèles et à l'historique des e-mails",
     icon: Mail,
-    permission: "emails.manageTemplates",
+    // OR : la page elle-même n'affiche que l'onglet couvert par la permission de
+    // l'appelant (voir app/(app)/admin/emails/page.tsx) — un Agent calliste/RDV
+    // sans emails.manageTemplates y a quand même sa place via emails.viewHistory.
+    permission: ["emails.manageTemplates", "emails.viewHistory"],
   },
   {
     href: "/admin/organization",
@@ -150,4 +153,74 @@ export function isNavItemVisible(
   if (!permission) return true;
   const keys = Array.isArray(permission) ? permission : [permission];
   return keys.some(hasPermission);
+}
+
+/**
+ * §5.25-§5.28 — nav dédiée et EXCLUSIVE pour l'Agent RDV (remplace la nav
+ * générique, décision actée avec l'utilisateur : pas les deux à la fois). Les 4
+ * écrans du brief + e-mails/notifications/mon compte, déjà tous construits —
+ * aucun composant neuf ici, uniquement un jeu d'entrées de nav différent.
+ */
+export const AGENT_RDV_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/agent-rdv/dashboard",
+    label: "Tableau de bord",
+    paletteLabel: "Aller au tableau de bord",
+    icon: BarChart3,
+    permission: "reports.view",
+  },
+  {
+    href: "/agent-rdv/dashboard/details",
+    label: "Détail du suivi",
+    paletteLabel: "Aller au détail du suivi",
+    icon: LineChart,
+    permission: "reports.view",
+  },
+  {
+    href: "/agent-rdv/clients",
+    label: "Mes clients",
+    paletteLabel: "Aller à mes clients",
+    icon: Users,
+    permission: "clients.view",
+  },
+  {
+    href: "/agent-rdv/calendar",
+    label: "Mon calendrier",
+    paletteLabel: "Aller à mon calendrier",
+    icon: CalendarDays,
+    permission: "calendar.view",
+  },
+  {
+    href: "/admin/emails",
+    label: "E-mails",
+    paletteLabel: "Aller aux e-mails",
+    icon: Mail,
+    permission: ["emails.manageTemplates", "emails.viewHistory"],
+  },
+  {
+    href: "/notifications",
+    label: "Notifications",
+    paletteLabel: "Aller à mes notifications",
+    icon: Bell,
+    permission: "notifications.view",
+  },
+  // "Mon compte" n'est PAS répété ici : le lien fixe en bas du rail (SideRail.tsx,
+  // §5.11) est déjà présent pour tous les rôles, y compris avec cette nav swappée.
+];
+
+/**
+ * Signal de capacité, jamais un nom de rôle en dur (§P0.0) : `calendar.manageAppointments`
+ * n'existe par défaut que sur le rôle "Agent RDV" (voir lib/defaultRoles.ts côté
+ * backend) — un rôle renommé ou un second rôle équivalent bascule aussi sur cette
+ * nav. Exclu explicitement si l'appelant a en plus un droit d'administration
+ * cross-utilisateurs (`clients.viewAll`/`users.view`) : l'Administrateur système a
+ * TOUTES les permissions, y compris `calendar.manageAppointments`, et doit
+ * continuer à voir la nav complète, pas la nav simplifiée.
+ */
+export function isAgentRdvNavProfile(hasPermission: (key: string) => boolean): boolean {
+  return (
+    hasPermission("calendar.manageAppointments") &&
+    !hasPermission("clients.viewAll") &&
+    !hasPermission("users.view")
+  );
 }

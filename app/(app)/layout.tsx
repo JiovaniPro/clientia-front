@@ -1,11 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ReminderPopupListener } from "@/components/shell/ReminderPopupListener";
 import { SideRail } from "@/components/shell/SideRail";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { isAgentRdvNavProfile } from "@/lib/nav/navItems";
 
 /**
  * Portail d'authentification côté client, pas via `proxy.ts` : le cookie de refresh
@@ -15,14 +16,21 @@ import { useAuth } from "@/lib/auth/AuthContext";
  * backend (chaque route vérifie son propre token) ; ceci n'est qu'un confort d'UI.
  */
 export default function AppShellLayout({ children }: LayoutProps<"/">) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, hasPermission } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+
+  // §5.4 — l'Agent RDV (même signal de capacité que sa nav dédiée, jamais un nom de rôle)
+  // n'a pas d'usage de l'écran "Aujourd'hui" : accueil = son tableau de bord. Ici et non dans
+  // page.tsx pour ne pas pouvoir être contourné (pathname ignore la query string).
+  const redirectToAgentDashboard = Boolean(user) && pathname === "/" && isAgentRdvNavProfile(hasPermission);
 
   useEffect(() => {
     if (!isLoading && !user) router.replace("/login");
-  }, [isLoading, user, router]);
+    else if (redirectToAgentDashboard) router.replace("/agent-rdv/dashboard");
+  }, [isLoading, user, redirectToAgentDashboard, router]);
 
-  if (isLoading || !user) {
+  if (isLoading || !user || redirectToAgentDashboard) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-cream">
         <p className="font-mono text-sm text-ink-muted">Chargement…</p>

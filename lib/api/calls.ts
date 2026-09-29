@@ -22,8 +22,12 @@ export interface CallDTO {
   email: string | null;
   recallDate: string | null;
   recallTimeSlot: string | null;
+  /** §5.4 — dernier changement de statut effectif (source de vérité de "traité aujourd'hui"). */
+  lastStatusChangedAt: string;
   createdAt: string;
   updatedAt: string;
+  /** §5.4 — présent uniquement dans les items de GET /calls (listCalls), pas dans les autres réponses. */
+  hasActiveReminder?: boolean;
   /** Ajouté au lot 3 pour le §P0.2 : présence d'un dossier sans requête supplémentaire par ligne. */
   client: { id: string } | null;
   /** §5.18 — nom de l'agent, résolu côté backend (colonne "Agent" du Journal). */
@@ -39,17 +43,22 @@ export interface ListCallsResponse {
 
 export interface ListCallsFilters {
   statusKey?: string;
+  /** §5.4 — multi-statut (union), liste séparée par virgules ; le backend accepte aussi un tableau. Écran "Aujourd'hui" uniquement. */
+  statusKeys?: string;
   /** §P0.2/§5.6 : exclut un statut au lieu de filtrer dessus — voir modules/calls/service.ts. */
   excludeStatusKey?: string;
   type?: CallType;
   waveNumber?: number;
   from?: string;
   to?: string;
+  /** §5.4 — mêmes bornes que from/to mais sur lastStatusChangedAt (écran "Aujourd'hui"). */
+  changedFrom?: string;
+  changedTo?: string;
   search?: string;
   /** §5.18 — ignoré côté backend sans calls.viewAll, voir modules/calls/service.ts. */
   userId?: string;
   /** "queue" = vague → nom → prénom (§P0.2, "À appeler") ; "recent" (défaut) = plus récent d'abord (Journal). */
-  sort?: "recent" | "queue";
+  sort?: "recent" | "queue" | "changed";
   page?: number;
   pageSize?: number;
 }
@@ -117,6 +126,11 @@ export interface CallStatusHistoryEntryDTO {
 export interface CallDetailDTO extends CallDTO {
   client: { id: string } | null;
   statusHistory: CallStatusHistoryEntryDTO[];
+}
+
+/** 204 en cas de succès ; 409 (details.code = CALL_HAS_CLIENT_DOSSIER) si un dossier client est lié — le message backend est destiné à être affiché tel quel. */
+export function deleteCall(id: string, accessToken: string) {
+  return apiClient.delete<void>(`/calls/${id}`, accessToken);
 }
 
 /** §5.6 — vue détail/historique pour le journal des appels. */

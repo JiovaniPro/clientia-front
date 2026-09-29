@@ -32,6 +32,10 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   hasPermission: (key: string) => boolean;
+  /** §5.11 — applique un `AuthUser` déjà à jour (ex. après PATCH /auth/me), sans
+   * toucher au token d'accès ni au cycle refresh : ce n'est pas une nouvelle
+   * session, juste des champs de profil qui ont changé. */
+  updateUser: (user: AuthUser) => void;
   /** Requête authentifiée avec retry automatique une fois sur 401 (via /auth/refresh). */
   authedFetch: <T>(fn: (accessToken: string) => Promise<T>) => Promise<T>;
 }
@@ -149,9 +153,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = useCallback((key: string) => user?.permissions.includes(key) ?? false, [user]);
 
+  const updateUser = useCallback((updated: AuthUser) => {
+    setUser(updated);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, isLoading, login, logout, hasPermission, authedFetch }),
-    [user, isLoading, login, logout, hasPermission, authedFetch],
+    () => ({ user, isLoading, login, logout, hasPermission, authedFetch, updateUser }),
+    [user, isLoading, login, logout, hasPermission, authedFetch, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

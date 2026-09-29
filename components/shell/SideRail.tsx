@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { LogOut, PanelLeftClose, PanelLeftOpen, UserCog } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -8,8 +8,9 @@ import { cn } from "@/lib/cn";
 import { getPendingInvitationsCount } from "@/lib/api/calendar";
 import { listNotifications } from "@/lib/api/notifications";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { isNavItemVisible, NAV_ITEMS } from "@/lib/nav/navItems";
+import { AGENT_RDV_NAV_ITEMS, isAgentRdvNavProfile, isNavItemVisible, NAV_ITEMS } from "@/lib/nav/navItems";
 import { subscribeNotificationsBadgeStale } from "@/lib/notifications/badgeSignal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 const STORAGE_KEY = "clientia:rail-collapsed";
 /**
@@ -52,6 +53,8 @@ export function SideRail() {
   const { user, logout, hasPermission, authedFetch } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [showNotificationsBadge, setShowNotificationsBadge] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     try {
@@ -126,9 +129,23 @@ export function SideRail() {
   }
 
   async function handleLogout() {
-    await logout();
-    router.push("/login");
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.push("/login");
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
   }
+
+  const visibleNavItems = (isAgentRdvNavProfile(hasPermission) ? AGENT_RDV_NAV_ITEMS : NAV_ITEMS).filter((item) =>
+    isNavItemVisible(item.permission, hasPermission),
+  );
+  const activeHref = visibleNavItems
+    .map((item) => item.href)
+    .filter((href) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`)))
+    .sort((a, b) => b.length - a.length)[0];
 
   return (
     <aside
@@ -150,8 +167,12 @@ export function SideRail() {
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
-        {NAV_ITEMS.filter((item) => isNavItemVisible(item.permission, hasPermission)).map((item) => {
-          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+        {visibleNavItems.map((item) => {
+          // Le href le plus long (le plus spécifique) gagne quand plusieurs items
+          // matchent — nécessaire depuis que "Détail du suivi" (/agent-rdv/dashboard/details)
+          // est imbriqué sous "Tableau de bord" (/agent-rdv/dashboard) : sans ça, les
+          // deux s'allumaient en même temps sur l'écran de détail.
+          const isActive = item.href === activeHref;
           const Icon = item.icon;
           const showBadge = item.href === "/notifications" && showNotificationsBadge;
           return (
@@ -194,9 +215,23 @@ export function SideRail() {
             <p className="truncate text-xs text-ink-muted">{user?.roleName}</p>
           </div>
         )}
+        <Link
+          href="/account"
+          className={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            pathname.startsWith("/account")
+              ? "bg-forest-50 text-forest-600"
+              : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
+            collapsed && "justify-center px-0",
+          )}
+          title={collapsed ? "Mon compte" : undefined}
+        >
+          <UserCog size={18} className="shrink-0" />
+          {collapsed ? null : "Mon compte"}
+        </Link>
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => setShowLogoutConfirm(true)}
           className={cn(
             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-subtle hover:text-status-danger",
             collapsed && "justify-center px-0",
@@ -207,6 +242,18 @@ export function SideRail() {
           {collapsed ? null : "Se déconnecter"}
         </button>
       </div>
+
+      {showLogoutConfirm ? (
+        <ConfirmModal
+          title="Se déconnecter"
+          message="Se déconnecter maintenant ?"
+          confirmLabel="Se déconnecter"
+          variant="neutral"
+          onConfirm={handleLogout}
+          onClose={() => setShowLogoutConfirm(false)}
+          isConfirming={isLoggingOut}
+        />
+      ) : null}
     </aside>
   );
 }

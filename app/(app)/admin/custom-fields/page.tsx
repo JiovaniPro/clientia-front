@@ -5,6 +5,7 @@ import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CustomFieldFormModal } from "@/components/admin/CustomFieldFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/lib/api/client";
 import type { CustomFieldDefinitionDTO, CustomFieldType } from "@/lib/api/customFields";
 import { listDefinitions, SUPPORTED_ENTITY_TYPE, updateDefinition } from "@/lib/api/customFields";
@@ -39,6 +40,7 @@ export default function AdminCustomFieldsPage() {
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; definition: CustomFieldDefinitionDTO } | null>(
     null,
   );
+  const [deactivateTarget, setDeactivateTarget] = useState<CustomFieldDefinitionDTO | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -81,6 +83,16 @@ export default function AdminCustomFieldsPage() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingId(null);
+      setDeactivateTarget(null);
+    }
+  }
+
+  /** Seule la désactivation passe par une confirmation — réactiver n'a rien de sensible (§6.23). */
+  function handleToggleActiveClick(definition: CustomFieldDefinitionDTO) {
+    if (definition.isActive) {
+      setDeactivateTarget(definition);
+    } else {
+      handleToggleActive(definition);
     }
   }
 
@@ -115,7 +127,7 @@ export default function AdminCustomFieldsPage() {
           <button
             type="button"
             className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-            onClick={() => handleToggleActive(d)}
+            onClick={() => handleToggleActiveClick(d)}
             disabled={pendingId === d.id}
           >
             {d.isActive ? "Désactiver" : "Réactiver"}
@@ -164,6 +176,17 @@ export default function AdminCustomFieldsPage() {
           definition={modal.mode === "edit" ? modal.definition : undefined}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      ) : null}
+
+      {deactivateTarget ? (
+        <ConfirmModal
+          title="Désactiver ce champ"
+          message={`Désactiver « ${deactivateTarget.label} » ? Il disparaîtra des formulaires de saisie — les valeurs déjà écrites sur les dossiers clients restent intactes.`}
+          confirmLabel="Désactiver"
+          onConfirm={() => handleToggleActive(deactivateTarget)}
+          onClose={() => setDeactivateTarget(null)}
+          isConfirming={pendingId === deactivateTarget.id}
         />
       ) : null}
     </div>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -29,7 +30,8 @@ function personLabel(p: { firstName: string | null; lastName: string | null } | 
  * un champ ID brut faute d'endpoint /users.
  */
 export default function ClientsPage() {
-  const { authedFetch } = useAuth();
+  const { authedFetch, hasPermission } = useAuth();
+  const canDelete = hasPermission("clients.delete");
 
   const [dossierStatuses, setDossierStatuses] = useState<ConfigurableListItemDTO[]>([]);
   const [finalStatuses, setFinalStatuses] = useState<ConfigurableListItemDTO[]>([]);
@@ -45,6 +47,7 @@ export default function ClientsPage() {
   const [agentId, setAgentId] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     const timeout = setTimeout(() => setSearch(searchInput), 350);
@@ -190,11 +193,18 @@ export default function ClientsPage() {
                   <td className="px-4 py-2.5 text-ink-muted">{personLabel(client.agent)}</td>
                   <td className="px-4 py-2.5 text-ink-muted">{personLabel(client.telephoniste)}</td>
                   <td className="px-4 py-2.5 text-right">
-                    <Link href={`/clients/${client.id}`}>
-                      <Button size="sm" variant="secondary">
-                        Ouvrir
-                      </Button>
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      <Link href={`/clients/${client.id}`}>
+                        <Button size="sm" variant="secondary">
+                          Ouvrir
+                        </Button>
+                      </Link>
+                      {canDelete ? (
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteTargetId(client.id)}>
+                          Supprimer
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -219,6 +229,19 @@ export default function ClientsPage() {
           </div>
         </div>
       </div>
+
+      {deleteTargetId ? (
+        <DeleteClientDialog
+          clientId={deleteTargetId}
+          onClose={() => setDeleteTargetId(null)}
+          onDeleted={() => {
+            setDeleteTargetId(null);
+            // Dernière ligne de la page courante supprimée : retour à la page précédente (relance le fetch).
+            if (clients.length === 1 && page > 1) setPage(page - 1);
+            else fetchClients();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

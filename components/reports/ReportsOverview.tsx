@@ -14,11 +14,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AppointmentsListModal } from "@/components/reports/AppointmentsListModal";
+import { CallsListModal } from "@/components/reports/CallsListModal";
+import { ClientsListModal } from "@/components/reports/ClientsListModal";
+import { getConfigurableList } from "@/lib/api/configurableLists";
 import type { AppointmentsReportDTO, CallsReportDTO, ClientsReportDTO } from "@/lib/api/reports";
 import { getAppointmentsReport, getCallsReport, getClientsReport } from "@/lib/api/reports";
 import { useAuth } from "@/lib/auth/AuthContext";
 
-const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
+/** Exporté — réutilisé par le tableau de bord Agent RDV (§5.27). */
+export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   EN_ATTENTE_DE_CONFIRMATION: "En attente",
   CONFIRME: "Confirmé",
   ANNULE: "Annulé",
@@ -80,6 +85,9 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
   const { authedFetch } = useAuth();
 
   const [period, setPeriod] = useState<PeriodKey>("week");
+  const [showAppointmentsDrillDown, setShowAppointmentsDrillDown] = useState(false);
+  const [callsDrillDown, setCallsDrillDown] = useState<{ title: string; statusKeys?: string[] } | null>(null);
+  const [showClientsDrillDown, setShowClientsDrillDown] = useState(false);
   const [calls, setCalls] = useState<CallsReportDTO | null>(null);
   const [clients, setClients] = useState<ClientsReportDTO | null>(null);
   const [appointments, setAppointments] = useState<AppointmentsReportDTO | null>(null);
@@ -110,6 +118,18 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  const periodLabel = PERIODS.find((p) => p.key === period)!.label.toLowerCase();
+
+  /** "Taux de conversion" (§6.13, point 3) : résout les statuts "déclenchants" via CALL_STATUS — jamais
+   * codés en dur — puis ouvre la même modale que "Appels", filtrée sur ces statuts. N'affiche QUE le
+   * numérateur (les appels concluants), pas le dénominateur : décision actée, ce n'est pas ce que ce
+   * chiffre précis représente. */
+  async function openConversionDrillDown() {
+    const items = await authedFetch((token) => getConfigurableList("CALL_STATUS", token));
+    const triggeringKeys = items.filter((i) => i.metadata?.triggersClientDossierCreation).map((i) => i.key);
+    setCallsDrillDown({ title: `Appels concluants — ${periodLabel}`, statusKeys: triggeringKeys });
+  }
 
   const byUserChartData = calls?.byUser.map((u) => ({ name: personLabel(u.user, "Agent supprimé"), count: u.count })) ?? [];
   const byStatusChartData = calls?.byStatus.map((s) => ({ name: s.label, count: s.count })) ?? [];
@@ -148,13 +168,26 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Appels" value={calls.total} />
-            <StatCard label="Rendez-vous" value={appointments.total} />
-            <StatCard label="Nouveaux dossiers" value={clients.total} />
+            <StatCard
+              label="Appels"
+              value={calls.total}
+              onClick={calls.total > 0 ? () => setCallsDrillDown({ title: `Appels — ${periodLabel}` }) : undefined}
+            />
+            <StatCard
+              label="Rendez-vous"
+              value={appointments.total}
+              onClick={appointments.total > 0 ? () => setShowAppointmentsDrillDown(true) : undefined}
+            />
+            <StatCard
+              label="Nouveaux dossiers"
+              value={clients.total}
+              onClick={clients.total > 0 ? () => setShowClientsDrillDown(true) : undefined}
+            />
             <StatCard
               label="Taux de conversion"
               value={formatConversionRate(calls.conversion.rate)}
               detail={`${calls.conversion.triggeringCount} appel${calls.conversion.triggeringCount > 1 ? "s" : ""} concluant${calls.conversion.triggeringCount > 1 ? "s" : ""}`}
+              onClick={calls.conversion.triggeringCount > 0 ? openConversionDrillDown : undefined}
             />
           </div>
 
@@ -213,21 +246,84 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
           </div>
         </>
       )}
+
+      {/* §6.13 — la portée hérite du contexte déjà affiché sur cette carte : userId absent = ce que
+          calendar.viewAll autorise (org entière sur /admin/dashboard) ; userId renseigné = ce collègue
+          précis (agent lui-même ou choisi via le sélecteur sur /my-stats), jamais recalculée ici. */}
+      {showAppointmentsDrillDown ? (
+        <AppointmentsListModal
+          title={`Rendez-vous — ${periodLabel}`}
+          from={from.toISOString()}
+          to={to.toISOString()}
+          agentRdvId={userId}
+          onClose={() => setShowAppointmentsDrillDown(false)}
+        />
+      ) : null}
+
+      {/* §6.13 — même héritage de portée que ci-dessus, sur userId (calls.viewAll côté backend). */}
+      {callsDrillDown ? (
+        <CallsListModal
+          title={callsDrillDown.title}
+          from={from.toISOString()}
+          to={to.toISOString()}
+          userId={userId}
+          statusKeys={callsDrillDown.statusKeys}
+          onClose={() => setCallsDrillDown(null)}
+        />
+      ) : null}
+
+      {/* §6.13 — "Nouveaux dossiers" est un dossier CRÉÉ dans la période (createdFrom/createdTo), pas
+          modifié : distinct du drill-down "Contrats signés" de l'agent RDV (updatedFrom/updatedTo). */}
+      {showClientsDrillDown ? (
+        <ClientsListModal
+          title={`Nouveaux dossiers — ${periodLabel}`}
+          createdFrom={from.toISOString()}
+          createdTo={to.toISOString()}
+          agentId={userId}
+          onClose={() => setShowClientsDrillDown(false)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function StatCard({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-4 shadow-flat">
+/** Exporté — réutilisé par le tableau de bord Agent RDV (§5.27), mêmes tuiles/graphiques. */
+export function StatCard({
+  label,
+  value,
+  detail,
+  onClick,
+}: {
+  label: string;
+  value: number | string;
+  detail?: string;
+  /** §6.13 — drill-down KPI : présent seulement quand un clic ouvre effectivement une liste (ex. jamais sur "Taux de conversion" tant que son drill-down n'est pas branché). */
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
       <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">{label}</p>
       <p className="mt-1 font-display text-2xl font-bold text-ink">{value}</p>
       {detail ? <p className="mt-1 text-xs text-ink-muted">{detail}</p> : null}
-    </div>
+    </>
+  );
+
+  if (!onClick) {
+    return <div className="rounded-lg border border-border bg-surface p-4 shadow-flat">{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border border-border bg-surface p-4 text-left shadow-flat transition-colors hover:border-forest-600 hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600"
+    >
+      {content}
+    </button>
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+export function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-surface p-4 shadow-flat">
       <h2 className="mb-2 font-display text-sm font-semibold text-ink">{title}</h2>

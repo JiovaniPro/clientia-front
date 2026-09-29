@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { isNavItemVisible, NAV_ITEMS } from "@/lib/nav/navItems";
+import { AGENT_RDV_NAV_ITEMS, isAgentRdvNavProfile, isNavItemVisible, NAV_ITEMS } from "@/lib/nav/navItems";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 interface Command {
   id: string;
@@ -26,10 +27,25 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.push("/login");
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
+  }
 
   const commands: Command[] = useMemo(
     () => [
-      ...NAV_ITEMS.filter((item) => isNavItemVisible(item.permission, hasPermission)).map((item) => ({
+      ...(isAgentRdvNavProfile(hasPermission) ? AGENT_RDV_NAV_ITEMS : NAV_ITEMS)
+        .filter((item) => isNavItemVisible(item.permission, hasPermission))
+        .map((item) => ({
         id: item.href,
         label: item.paletteLabel,
         icon: item.icon,
@@ -39,12 +55,12 @@ export function CommandPalette() {
         id: "logout",
         label: "Se déconnecter",
         icon: LogOut,
-        run: () => {
-          logout().then(() => router.push("/login"));
-        },
+        // Ouvre la même ConfirmModal que le rail (§6.26) — jamais de déconnexion
+        // immédiate depuis la palette, ce serait une seconde porte sans confirmation.
+        run: () => setShowLogoutConfirm(true),
       },
     ],
-    [router, logout, hasPermission],
+    [router, hasPermission],
   );
 
   const filtered = useMemo(
@@ -71,8 +87,6 @@ export function CommandPalette() {
     setActiveIndex(0);
   }, [query]);
 
-  if (!open) return null;
-
   function runCommand(command: Command) {
     command.run();
     setOpen(false);
@@ -92,6 +106,8 @@ export function CommandPalette() {
   }
 
   return (
+    <>
+      {open ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/40 pt-32" onClick={() => setOpen(false)}>
       <div
         className="w-full max-w-lg rounded-lg border border-border bg-surface shadow-raised"
@@ -138,5 +154,19 @@ export function CommandPalette() {
         </ul>
       </div>
     </div>
+      ) : null}
+
+      {showLogoutConfirm ? (
+        <ConfirmModal
+          title="Se déconnecter"
+          message="Se déconnecter maintenant ?"
+          confirmLabel="Se déconnecter"
+          variant="neutral"
+          onConfirm={handleLogout}
+          onClose={() => setShowLogoutConfirm(false)}
+          isConfirming={isLoggingOut}
+        />
+      ) : null}
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { RoleFormModal } from "@/components/admin/RoleFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { PermissionDTO, RoleDetailDTO } from "@/lib/api/roles";
 import { deleteRole, listPermissionsCatalog, listRolesDetailed } from "@/lib/api/roles";
 import { ApiError } from "@/lib/api/client";
@@ -26,6 +27,7 @@ export default function AdminRolesPage() {
 
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; role: RoleDetailDTO } | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoleDetailDTO | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -67,10 +69,13 @@ export default function AdminRolesPage() {
       setNotice(`Rôle « ${role.name} » supprimé.`);
     } catch (err) {
       // Les deux garde-fous backend (rôle système, rôle encore assigné) sont
-      // affichés tels quels — jamais re-devinés côté client.
+      // affichés tels quels — jamais re-devinés côté client. La modale se
+      // referme dans tous les cas : le message (succès ou erreur) reste porté
+      // par le bandeau de la page, jamais caché derrière la modale.
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingDeleteId(null);
+      setDeleteTarget(null);
     }
   }
 
@@ -106,7 +111,7 @@ export default function AdminRolesPage() {
             <button
               type="button"
               className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-              onClick={() => handleDelete(r)}
+              onClick={() => setDeleteTarget(r)}
               disabled={isPendingDelete || !canDelete}
               title={
                 r.isSystem
@@ -153,6 +158,17 @@ export default function AdminRolesPage() {
           permissionsCatalog={catalog}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer ce rôle"
+          message={`Supprimer le rôle « ${deleteTarget.name} » ? Cette action est irréversible.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={pendingDeleteId === deleteTarget.id}
         />
       ) : null}
     </div>

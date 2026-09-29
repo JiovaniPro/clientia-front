@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ReminderFormModal } from "@/components/reminders/ReminderFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { ReminderDTO, ReminderStatus } from "@/lib/api/reminders";
 import { deleteReminder, listReminders } from "@/lib/api/reminders";
 import type { UserListItemDTO } from "@/lib/api/users";
@@ -54,6 +55,8 @@ export default function RemindersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<"create" | ReminderDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ReminderDTO | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchReminders = useCallback(async () => {
     setIsLoading(true);
@@ -88,11 +91,15 @@ export default function RemindersPage() {
   }, [canViewAll, authedFetch]);
 
   async function handleDelete(reminder: ReminderDTO) {
+    setIsDeleting(true);
     try {
       await authedFetch((token) => deleteReminder(reminder.id, token));
       fetchReminders();
     } catch {
       setError("Impossible de supprimer ce rappel.");
+    } finally {
+      setIsDeleting(false);
+      setDeleteTarget(null);
     }
   }
 
@@ -186,7 +193,7 @@ export default function RemindersPage() {
                           </Button>
                         ) : null}
                         {canDelete && isOwn ? (
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(reminder)}>
+                          <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(reminder)}>
                             Supprimer
                           </Button>
                         ) : null}
@@ -208,6 +215,17 @@ export default function RemindersPage() {
             setModal(null);
             fetchReminders();
           }}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer ce rappel"
+          message={`Supprimer « ${deleteTarget.title} » ? Cette action est irréversible.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={isDeleting}
         />
       ) : null}
     </div>

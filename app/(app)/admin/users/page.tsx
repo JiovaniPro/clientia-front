@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { UserFormModal } from "@/components/admin/UserFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { RoleListItemDTO } from "@/lib/api/roles";
 import { listRoles } from "@/lib/api/roles";
 import type { UserListItemDTO } from "@/lib/api/users";
@@ -33,6 +34,7 @@ export default function AdminUsersPage() {
 
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; user: UserListItemDTO } | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<UserListItemDTO | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -73,12 +75,23 @@ export default function AdminUsersPage() {
     try {
       const updated = await authedFetch((token) => setUserStatus(target.id, !target.isActive, token));
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setNotice(updated.isActive ? `${personLabel(updated)} réactivé.` : `${personLabel(updated)} désactivé.`);
     } catch (err) {
       // Les deux garde-fous (auto-désactivation, dernier compte gestionnaire) sont
       // vérifiés côté backend — le message est affiché tel quel, jamais re-deviné ici.
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingActionId(null);
+      setDeactivateTarget(null);
+    }
+  }
+
+  /** Seule la désactivation passe par une confirmation — réactiver n'a rien de sensible (§6.20). */
+  function handleToggleStatusClick(target: UserListItemDTO) {
+    if (target.isActive) {
+      setDeactivateTarget(target);
+    } else {
+      handleToggleStatus(target);
     }
   }
 
@@ -144,7 +157,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-              onClick={() => handleToggleStatus(u)}
+              onClick={() => handleToggleStatusClick(u)}
               disabled={isPending || (isSelf && u.isActive)}
               title={isSelf && u.isActive ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
             >
@@ -185,6 +198,17 @@ export default function AdminUsersPage() {
           roles={roles}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      ) : null}
+
+      {deactivateTarget ? (
+        <ConfirmModal
+          title="Désactiver ce compte"
+          message={`Désactiver le compte de ${personLabel(deactivateTarget)} ? Cette personne perdra immédiatement l'accès.`}
+          confirmLabel="Désactiver"
+          onConfirm={() => handleToggleStatus(deactivateTarget)}
+          onClose={() => setDeactivateTarget(null)}
+          isConfirming={pendingActionId === deactivateTarget.id}
         />
       ) : null}
     </div>

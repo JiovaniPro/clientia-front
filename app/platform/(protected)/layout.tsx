@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { cn } from "@/lib/cn";
 import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
 
@@ -24,6 +25,19 @@ export default function PlatformProtectedLayout({ children }: LayoutProps<"/plat
   const { platformAdmin, isLoading, logout } = usePlatformAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.replace("/platform/login");
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
+  }
 
   useEffect(() => {
     if (isLoading) return;
@@ -75,12 +89,24 @@ export default function PlatformProtectedLayout({ children }: LayoutProps<"/plat
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-ink-muted">{platformAdmin.email}</span>
-          <Button variant="secondary" size="sm" onClick={() => logout().then(() => router.replace("/platform/login"))}>
+          <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(true)}>
             Se déconnecter
           </Button>
         </div>
       </header>
       <main className="flex-1">{children}</main>
+
+      {showLogoutConfirm ? (
+        <ConfirmModal
+          title="Se déconnecter"
+          message="Se déconnecter maintenant ?"
+          confirmLabel="Se déconnecter"
+          variant="neutral"
+          onConfirm={handleLogout}
+          onClose={() => setShowLogoutConfirm(false)}
+          isConfirming={isLoggingOut}
+        />
+      ) : null}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { EmailTemplateFormModal } from "@/components/admin/EmailTemplateFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/lib/api/client";
 import type { EmailTemplateDTO } from "@/lib/api/emails";
 import { deleteTemplate, listTemplates, updateTemplate } from "@/lib/api/emails";
@@ -27,6 +28,7 @@ export function EmailTemplatesTab() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; template: EmailTemplateDTO } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EmailTemplateDTO | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -89,6 +91,7 @@ export function EmailTemplatesTab() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingId(null);
+      setDeleteTarget(null);
     }
   }
 
@@ -128,7 +131,7 @@ export function EmailTemplatesTab() {
           <button
             type="button"
             className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-            onClick={() => handleDelete(t)}
+            onClick={() => setDeleteTarget(t)}
             disabled={pendingId === t.id}
           >
             Supprimer
@@ -172,6 +175,17 @@ export function EmailTemplatesTab() {
           template={modal.mode === "edit" ? modal.template : undefined}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer ce modèle"
+          message={`Supprimer « ${deleteTarget.label} » ? Cette action est irréversible — bloquée si le modèle a déjà servi à un envoi réel.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={pendingId === deleteTarget.id}
         />
       ) : null}
     </div>

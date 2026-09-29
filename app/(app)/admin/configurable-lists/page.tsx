@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Select } from "@/components/ui/Select";
 import { ListItemFormModal } from "@/components/admin/ListItemFormModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/lib/api/client";
 import type { BehaviorFlagDTO, ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { deleteListItem, getBehaviorFlagsCatalog, listAllConfigurableLists, updateListItem } from "@/lib/api/configurableLists";
@@ -33,6 +34,8 @@ export default function AdminConfigurableListsPage() {
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; item: ConfigurableListItemDTO } | null>(
     null,
   );
+  const [deactivateTarget, setDeactivateTarget] = useState<ConfigurableListItemDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ConfigurableListItemDTO | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -82,6 +85,16 @@ export default function AdminConfigurableListsPage() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingId(null);
+      setDeactivateTarget(null);
+    }
+  }
+
+  /** Seule la désactivation passe par une confirmation — réactiver n'a rien de sensible (§6.22). */
+  function handleToggleActiveClick(item: ConfigurableListItemDTO) {
+    if (item.isActive) {
+      setDeactivateTarget(item);
+    } else {
+      handleToggleActive(item);
     }
   }
 
@@ -108,6 +121,7 @@ export default function AdminConfigurableListsPage() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingId(null);
+      setDeleteTarget(null);
     }
   }
 
@@ -144,7 +158,7 @@ export default function AdminConfigurableListsPage() {
           <button
             type="button"
             className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-            onClick={() => handleToggleActive(item)}
+            onClick={() => handleToggleActiveClick(item)}
             disabled={pendingId === item.id}
           >
             {item.isActive ? "Désactiver" : "Réactiver"}
@@ -152,7 +166,7 @@ export default function AdminConfigurableListsPage() {
           <button
             type="button"
             className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-            onClick={() => handleDelete(item)}
+            onClick={() => setDeleteTarget(item)}
             disabled={pendingId === item.id || item.isDefault}
             title={item.isDefault ? "La valeur par défaut d'une liste ne peut pas être supprimée" : undefined}
           >
@@ -216,6 +230,28 @@ export default function AdminConfigurableListsPage() {
           behaviorFlags={behaviorFlagsCatalog[selectedKey] ?? []}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      ) : null}
+
+      {deactivateTarget ? (
+        <ConfirmModal
+          title="Désactiver cette valeur"
+          message={`Désactiver « ${deactivateTarget.label} » ? Elle disparaîtra des listes déroulantes pour les nouvelles saisies — l'historique existant reste intact.`}
+          confirmLabel="Désactiver"
+          onConfirm={() => handleToggleActive(deactivateTarget)}
+          onClose={() => setDeactivateTarget(null)}
+          isConfirming={pendingId === deactivateTarget.id}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer cette valeur"
+          message={`Supprimer « ${deleteTarget.label} » ? Cette action est irréversible — bloquée si la valeur est encore utilisée par un enregistrement existant.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={pendingId === deleteTarget.id}
         />
       ) : null}
     </div>

@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api/client";
 import type { PlatformOrganizationDetailDTO, PlatformOrganizationUserDTO } from "@/lib/api/platformOrganizations";
 import { getOrganization, setOrganizationStatus } from "@/lib/api/platformOrganizations";
 import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 /**
  * Détail en lecture seule pour les utilisateurs — la gestion fine reste l'écran
@@ -26,6 +27,7 @@ export default function PlatformOrganizationDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+  const [showSuspendConfirm, setShowSuspendConfirm] = useState(false);
 
   const fetchOrganization = useCallback(async () => {
     setIsLoading(true);
@@ -60,6 +62,16 @@ export default function PlatformOrganizationDetailPage() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setIsTogglingStatus(false);
+      setShowSuspendConfirm(false);
+    }
+  }
+
+  /** Seule la suspension passe par une confirmation — réactiver n'a rien de sensible (§6.27). */
+  function handleToggleStatusClick() {
+    if (organization?.isActive) {
+      setShowSuspendConfirm(true);
+    } else {
+      handleToggleStatus();
     }
   }
 
@@ -117,7 +129,7 @@ export default function PlatformOrganizationDetailPage() {
               <Button
                 variant={organization.isActive ? "danger" : "secondary"}
                 size="sm"
-                onClick={handleToggleStatus}
+                onClick={handleToggleStatusClick}
                 disabled={isTogglingStatus}
               >
                 {organization.isActive ? "Suspendre" : "Réactiver"}
@@ -142,6 +154,17 @@ export default function PlatformOrganizationDetailPage() {
           </div>
         </>
       )}
+
+      {showSuspendConfirm && organization ? (
+        <ConfirmModal
+          title="Suspendre cette organisation"
+          message={`Suspendre « ${organization.name} » ? ${organization._count.users} utilisateur${organization._count.users > 1 ? "s" : ""} actif${organization._count.users > 1 ? "s" : ""} ${organization._count.users > 1 ? "perdront" : "perdra"} l'accès immédiatement et leurs sessions en cours seront révoquées.`}
+          confirmLabel="Suspendre"
+          onConfirm={handleToggleStatus}
+          onClose={() => setShowSuspendConfirm(false)}
+          isConfirming={isTogglingStatus}
+        />
+      ) : null}
     </div>
   );
 }

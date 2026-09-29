@@ -24,6 +24,8 @@ export interface ClientListItemDTO {
   adminNote: string | null;
   createdAt: string;
   updatedAt: string;
+  /** §5.26 — prochain RDV actif (en attente de confirmation ou confirmé), le plus proche. `null` si aucun. */
+  nextAppointmentAt: string | null;
 }
 
 export interface ClientDetailDTO extends ClientListItemDTO {
@@ -53,6 +55,13 @@ export interface ListClientsFilters {
   finalStatusKey?: string;
   agentId?: string;
   search?: string;
+  /** §6.13 — drill-down "Nouveaux dossiers" : borne sur Client.createdAt. */
+  createdFrom?: string;
+  createdTo?: string;
+  /** §6.13 — drill-down "Contrats signés" : borne sur Client.updatedAt (approximation de la date de
+   * signature, même limite déjà documentée sur le KPI source — pas une vraie date de signature stockée). */
+  updatedFrom?: string;
+  updatedTo?: string;
   page?: number;
   pageSize?: number;
 }
@@ -108,6 +117,11 @@ export interface UpdateClientInput {
    */
   finalStatusKey?: string;
   adminNote?: string;
+}
+
+/** 204 en cas de succès ; 409 (details.code = CLIENT_HAS_EMAIL_HISTORY) si le dossier a un historique d'e-mails — définitif, message backend à afficher tel quel. */
+export function deleteClient(id: string, accessToken: string) {
+  return apiClient.delete<void>(`/clients/${id}`, accessToken);
 }
 
 export function updateClient(id: string, input: UpdateClientInput, accessToken: string) {

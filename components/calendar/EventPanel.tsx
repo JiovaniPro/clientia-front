@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Select } from "@/components/ui/Select";
 import { TYPE_LABEL } from "@/components/calendar/CalendarGrid";
 import type { CallDTO } from "@/lib/api/calls";
@@ -24,6 +25,7 @@ import type {
 } from "@/lib/api/calendar";
 import {
   addAttendee,
+  changeAppointmentStatus,
   createEvent,
   createEventCategory,
   createReminder,
@@ -165,6 +167,21 @@ export function EventPanel({
     event && user && (isOrganizer || event.agentRdvId === user.id || hasPermission("calendar.viewAll")),
   );
 
+  /**
+   * §6.8/§6.24 — Confirmer/Refuser un rendez-vous. Reflète exactement
+   * `assertCanWriteEvent` + `requirePermission("calendar.manageAppointments")`
+   * côté backend (modules/calendar/routes.ts, service.ts) : pas seulement être
+   * organisateur/agent RDV assigné (ça suffit pour éditer le reste de l'événement),
+   * il faut EN PLUS la permission dédiée — un agent calliste organisateur d'un
+   * rendez-vous n'a jamais cette permission par défaut (vérifié en base réelle).
+   */
+  const canManageAppointmentStatus = Boolean(
+    event &&
+      user &&
+      hasPermission("calendar.manageAppointments") &&
+      (isOrganizer || event.agentRdvId === user.id),
+  );
+
   const defaultStart = event ? new Date(event.startAt) : (initialStart ?? new Date());
   const defaultEnd = event ? new Date(event.endAt) : new Date(defaultStart.getTime() + 60 * 60_000);
 
@@ -204,6 +221,19 @@ export function EventPanel({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // §6.8/§6.24 — statut miroir local : le formulaire d'édition (title/startAt/…)
+  // reflète déjà `event` via les champs ci-dessus, mais le statut de rendez-vous
+  // n'est pas un champ du formulaire général (voir handleSubmit) — sans cet état
+  // séparé, confirmer/refuser ne mettrait jamais à jour l'affichage avant la
+  // fermeture du panneau.
+  const [appointmentStatus, setAppointmentStatus] = useState(event?.status ?? null);
+  const [isChangingAppointmentStatus, setIsChangingAppointmentStatus] = useState(false);
+  const [appointmentStatusNotice, setAppointmentStatusNotice] = useState<string | null>(null);
+  const [showRefuseReason, setShowRefuseReason] = useState(false);
+  const [refuseReason, setRefuseReason] = useState("");
+  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<EventCategoryDTO | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   useEffect(() => {
     authedFetch((token) => listEventCategories(token))
       .then(setCategories)
@@ -234,6 +264,8 @@ export function EventPanel({
       if (categoryId === id) setCategoryId("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible de supprimer la catégorie.");
+    } finally {
+      setCategoryDeleteTarget(null);
     }
   }
 
@@ -445,6 +477,33 @@ export function EventPanel({
     }
   }
 
+  /**
+   * §6.8/§6.24 — sur le même principe que `handleRespondAttendee` juste en
+   * dessous : ni un enregistrement du formulaire général, ni une fermeture du
+   * panneau (`onSaved` non appelé) — c'est `closePanel` (calendar-pro/page.tsx,
+   * déclenché par "Fermer"/X) qui rafraîchit déjà la grille dans tous les cas,
+   * même pattern que la réponse à une invitation juste en dessous.
+   */
+  async function handleChangeAppointmentStatus(status: "CONFIRME" | "REFUSE") {
+    if (!event) return;
+    setError(null);
+    setAppointmentStatusNotice(null);
+    setIsChangingAppointmentStatus(true);
+    try {
+      const updated = await authedFetch((token) =>
+        changeAppointmentStatus(event.id, { status, comment: status === "REFUSE" ? refuseReason || undefined : undefined }, token),
+      );
+      setAppointmentStatus(updated.status);
+      setShowRefuseReason(false);
+      setRefuseReason("");
+      setAppointmentStatusNotice(status === "CONFIRME" ? "Rendez-vous confirmé." : "Rendez-vous refusé.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de mettre à jour le statut du rendez-vous.");
+    } finally {
+      setIsChangingAppointmentStatus(false);
+    }
+  }
+
   async function handleRespondAttendee(attendeeId: string, status: "ACCEPTED" | "DECLINED") {
     if (!event) return;
     setError(null);
@@ -578,23 +637,26 @@ export function EventPanel({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible de supprimer cet événement.");
       setIsSubmitting(false);
+    } finally {
+      setShowDeleteConfirm(false);
     }
   }
 
   const readOnly = isEdit && !canWriteThisEvent;
 
   return (
-    <Modal title={isEdit ? "Modifier l'événement" : "Nouvel événement"} onClose={onClose}>
+    <>
+      <Modal title={isEdit ? "Modifier l'événement" : "Nouvel événement"} onClose={onClose}>
       <div className="space-y-4">
         <Input label="Titre" value={title} onChange={(e) => setTitle(e.target.value)} disabled={readOnly} required />
 
         {readOnly ? (
           <p className="text-sm text-ink-muted">
             Type : <span className="font-medium text-ink">{TYPE_LABEL[type]}</span>
-            {event?.status ? (
+            {appointmentStatus ? (
               <>
                 {" "}
-                — statut : <span className="font-medium text-ink">{APPOINTMENT_STATUS_LABEL[event.status]}</span>
+                — statut : <span className="font-medium text-ink">{APPOINTMENT_STATUS_LABEL[appointmentStatus]}</span>
               </>
             ) : null}
           </p>
@@ -711,7 +773,7 @@ export function EventPanel({
               <button
                 type="button"
                 className="whitespace-nowrap text-xs text-status-danger hover:underline"
-                onClick={() => handleDeleteCategory(categoryId)}
+                onClick={() => setCategoryDeleteTarget(categories.find((c) => c.id === categoryId) ?? null)}
                 title="Supprime la catégorie elle-même (pas seulement son affectation ici) — les autres événements qui l'utilisent perdent aussi le tag."
               >
                 Supprimer la catégorie
@@ -1039,6 +1101,55 @@ export function EventPanel({
 
         {type === "APPOINTMENT" ? (
           <div className="space-y-3 rounded-md border border-terracotta-500/30 bg-terracotta-500/10 p-3">
+            {isEdit && appointmentStatus ? (
+              <p className="text-sm text-ink">
+                Statut : <span className="font-medium">{APPOINTMENT_STATUS_LABEL[appointmentStatus]}</span>
+              </p>
+            ) : null}
+
+            {appointmentStatusNotice ? (
+              <p className="text-sm font-medium text-forest-600">{appointmentStatusNotice}</p>
+            ) : null}
+
+            {isEdit && appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" && canManageAppointmentStatus ? (
+              <div className="space-y-2 border-t border-terracotta-500/30 pt-3">
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => handleChangeAppointmentStatus("CONFIRME")}
+                    disabled={isChangingAppointmentStatus}
+                  >
+                    Confirmer
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setShowRefuseReason((v) => !v)}
+                    disabled={isChangingAppointmentStatus}
+                  >
+                    Refuser
+                  </Button>
+                </div>
+                {showRefuseReason ? (
+                  <div className="space-y-2">
+                    <Input
+                      label="Raison (optionnelle)"
+                      value={refuseReason}
+                      onChange={(e) => setRefuseReason(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleChangeAppointmentStatus("REFUSE")}
+                      disabled={isChangingAppointmentStatus}
+                    >
+                      {isChangingAppointmentStatus ? "Envoi…" : "Confirmer le refus"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {!isEdit || event?.type !== "APPOINTMENT" ? (
               <Select label="Appel rattaché" value={callId} onChange={(e) => setCallId(e.target.value)} disabled={readOnly}>
                 <option value="">Sélectionner…</option>
@@ -1082,7 +1193,7 @@ export function EventPanel({
               gate que l'écriture) — même bug que canWriteThisEvent ci-dessus,
               corrigé ici pour la même raison. */}
           {isEdit && canDelete && canWriteThisEvent ? (
-            <Button variant="danger" onClick={handleDelete} disabled={isSubmitting}>
+            <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isSubmitting}>
               Supprimer
             </Button>
           ) : (
@@ -1100,6 +1211,28 @@ export function EventPanel({
           </div>
         </div>
       </div>
-    </Modal>
+      </Modal>
+
+      {categoryDeleteTarget ? (
+        <ConfirmModal
+          title="Supprimer cette catégorie"
+          message={`Supprimer « ${categoryDeleteTarget.name} » ? Les autres événements qui l'utilisent perdront ce tag, mais ne seront pas supprimés.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDeleteCategory(categoryDeleteTarget.id)}
+          onClose={() => setCategoryDeleteTarget(null)}
+        />
+      ) : null}
+
+      {showDeleteConfirm ? (
+        <ConfirmModal
+          title="Supprimer cet événement"
+          message="Supprimer cet événement ? Cette action est irréversible."
+          confirmLabel="Supprimer"
+          onConfirm={handleDelete}
+          onClose={() => setShowDeleteConfirm(false)}
+          isConfirming={isSubmitting}
+        />
+      ) : null}
+    </>
   );
 }

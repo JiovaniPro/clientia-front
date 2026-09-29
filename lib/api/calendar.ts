@@ -236,6 +236,8 @@ export interface ListEventsFilters {
   to: string;
   calendarId?: string;
   type?: EventType;
+  /** §6.13 — drill-down KPI : ne fait que restreindre ce que eventAccessFilter autorise déjà côté backend. */
+  agentRdvId?: string;
 }
 
 /**

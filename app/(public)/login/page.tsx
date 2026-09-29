@@ -68,6 +68,12 @@ function LoginForm() {
             required
           />
 
+          <div className="text-right">
+            <Link href="/forgot-password" className="text-sm font-medium text-forest-600 hover:underline">
+              Mot de passe oublié ?
+            </Link>
+          </div>
+
           {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>

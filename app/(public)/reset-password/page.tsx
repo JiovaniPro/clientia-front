@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -17,7 +17,18 @@ import { ApiError } from "@/lib/api/client";
  */
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") ?? "";
+  // Lu UNE SEULE fois : le jeton est retiré de l'URL juste après (voir l'effet ci-dessous), et useSearchParams
+  // suit les replaceState — relire searchParams à chaque rendu afficherait "lien invalide" dès le nettoyage.
+  const [token] = useState(() => searchParams.get("token") ?? "");
+
+  // Le jeton (usage unique) ne doit pas rester dans la barre d'adresse, l'historique ni un futur Referer :
+  // on le retire de l'URL sans recharger la page (les autres paramètres éventuels sont conservés).
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("token")) return;
+    url.searchParams.delete("token");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");

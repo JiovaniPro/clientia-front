@@ -5,13 +5,15 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { WaveBadge } from "@/components/calls/WaveBadge";
 import { QualifyCallModal } from "@/components/calls/QualifyCallModal";
 import { NewCallModal } from "@/components/calls/NewCallModal";
 import { ImportCallsModal } from "@/components/calls/ImportCallsModal";
 import type { CallDTO, CallType, ListCallsFilters } from "@/lib/api/calls";
-import { listCalls } from "@/lib/api/calls";
+import { deleteCall, listCalls } from "@/lib/api/calls";
+import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -24,7 +26,8 @@ function formatOccurredAt(iso: string) {
 }
 
 export default function CallsPage() {
-  const { authedFetch } = useAuth();
+  const { authedFetch, hasPermission } = useAuth();
+  const canDelete = hasPermission("calls.delete");
 
   const [statuses, setStatuses] = useState<ConfigurableListItemDTO[]>([]);
   const [calls, setCalls] = useState<CallDTO[]>([]);
@@ -43,6 +46,9 @@ export default function CallsPage() {
   const [qualifyingCall, setQualifyingCall] = useState<CallDTO | null>(null);
   const [showNewCallModal, setShowNewCallModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CallDTO | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   /**
    * §P0.2 : "À appeler" ne montre QUE le statut neutre (le défaut de CALL_STATUS,
@@ -101,6 +107,28 @@ export default function CallsPage() {
   }, [type, waveNumber, from, to, search]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function closeDeleteModal() {
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }
+
+  async function handleDelete(call: CallDTO) {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await authedFetch((token) => deleteCall(call.id, token));
+      closeDeleteModal();
+      // Dernière ligne de la page courante supprimée : retour à la page précédente (le changement de page relance le fetch).
+      if (calls.length === 1 && page > 1) setPage(page - 1);
+      else fetchCalls();
+    } catch (err) {
+      // 409 (dossier client lié) : message backend affiché tel quel ; autres échecs : message générique.
+      setDeleteError(err instanceof ApiError && err.status === 409 ? err.message : "Impossible de supprimer cet appel.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-8">
@@ -189,9 +217,16 @@ export default function CallsPage() {
                   </td>
                   <td className="px-4 py-2.5 text-ink-muted">{formatOccurredAt(call.occurredAt)}</td>
                   <td className="px-4 py-2.5 text-right">
-                    <Button size="sm" variant="secondary" onClick={() => setQualifyingCall(call)}>
-                      Qualifier
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setQualifyingCall(call)}>
+                        Qualifier
+                      </Button>
+                      {canDelete ? (
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(call)}>
+                          Supprimer
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -235,6 +270,22 @@ export default function CallsPage() {
             setShowNewCallModal(false);
             fetchCalls();
           }}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer cet appel"
+          message={
+            <div className="space-y-2">
+              <p>Supprimer cet appel ? Cette action est irréversible.</p>
+              {deleteError ? <p className="text-status-danger">{deleteError}</p> : null}
+            </div>
+          }
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={closeDeleteModal}
+          isConfirming={isDeleting}
         />
       ) : null}
 

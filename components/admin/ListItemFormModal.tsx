@@ -9,6 +9,7 @@ import type { BehaviorFlagDTO, ConfigurableListItemDTO } from "@/lib/api/configu
 import { createListItem, updateListItem } from "@/lib/api/configurableLists";
 import { listKeyLabel } from "@/lib/nav/listKeyLabels";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface ListItemFormModalProps {
   /** Liste ciblée — fixe pour toute la durée de la modale, jamais un champ libre :
@@ -36,6 +37,10 @@ export function ListItemFormModal({ listKey, item, behaviorFlags, onClose, onSav
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    { key, label, color, order, isDefault, flags },
+    onClose,
+  );
 
   function toggleFlag(flagKey: string) {
     setFlags((prev) => {
@@ -74,7 +79,8 @@ export function ListItemFormModal({ listKey, item, behaviorFlags, onClose, onSav
   }
 
   return (
-    <Modal title={isEdit ? "Modifier la valeur" : "Nouvelle valeur"} onClose={onClose}>
+    <>
+    <Modal title={isEdit ? "Modifier la valeur" : "Nouvelle valeur"} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <p className="text-xs text-ink-muted">
           Liste : <span className="font-medium text-ink">{listKeyLabel(listKey)}</span>
@@ -129,7 +135,7 @@ export function ListItemFormModal({ listKey, item, behaviorFlags, onClose, onSav
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -138,5 +144,7 @@ export function ListItemFormModal({ listKey, item, behaviorFlags, onClose, onSav
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

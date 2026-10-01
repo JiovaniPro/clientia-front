@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatDate, PlatformNotice, PlatformPage, PlatformPageHeader } from "@/components/platform/PlatformPage";
 import { OrganizationFormModal } from "@/components/platform/OrganizationFormModal";
 import { ApiError } from "@/lib/api/client";
 import type { PlatformOrganizationDetailDTO, PlatformOrganizationSummaryDTO } from "@/lib/api/platformOrganizations";
@@ -17,6 +19,13 @@ import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
  * message explicite affiché aux utilisateurs de l'organisation à leur prochain
  * appel API) ; réactiver restaure l'accès sans rien reconstruire.
  */
+const STATUS_FILTERS = [
+  { value: "toutes", label: "Toutes" },
+  { value: "actives", label: "Actives" },
+  { value: "suspendues", label: "Suspendues" },
+] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+
 export default function PlatformOrganizationsPage() {
   const { authedFetch } = usePlatformAuth();
 
@@ -26,6 +35,7 @@ export default function PlatformOrganizationsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const statusFilter = (useSearchParams().get("statut") ?? "toutes") as StatusFilter;
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -46,7 +56,7 @@ export default function PlatformOrganizationsPage() {
   function handleCreated(created: PlatformOrganizationDetailDTO) {
     setIsModalOpen(false);
     setOrganizations((prev) => [{ ...created, _count: created._count }, ...prev]);
-    setNotice(`« ${created.name} » créée.`);
+    setNotice(`« ${created.name} » créée — invitation envoyée à ${created.users[0]?.email ?? "l'administrateur"}.`);
   }
 
   async function handleToggleStatus(org: PlatformOrganizationSummaryDTO) {
@@ -68,18 +78,28 @@ export default function PlatformOrganizationsPage() {
     }
   }
 
+  const activeCount = organizations.filter((o) => o.isActive).length;
+  const suspendedCount = organizations.length - activeCount;
+
+  const visibleOrganizations = organizations.filter((o) =>
+    statusFilter === "actives" ? o.isActive : statusFilter === "suspendues" ? !o.isActive : true,
+  );
+
   const columns: AdminTableColumn<PlatformOrganizationSummaryDTO>[] = [
     {
       header: "Organisation",
-      className: "text-ink",
       cell: (org) => (
-        <Link href={`/platform/organizations/${org.id}`} className="font-medium text-forest-600 hover:underline">
-          {org.name}
-        </Link>
+        <div className="min-w-0 py-1">
+          <Link
+            href={`/platform/organizations/${org.id}`}
+            className="font-medium text-ink underline-offset-2 hover:text-forest-600 hover:underline"
+          >
+            {org.name}
+          </Link>
+          <p className="truncate font-mono text-xs text-ink-faint">{org.slug}</p>
+        </div>
       ),
     },
-    { header: "Espace de travail", className: "font-mono text-xs text-ink-faint", cell: (org) => org.slug },
-    { header: "Utilisateurs", className: "text-ink-muted", cell: (org) => org._count.users },
     {
       header: "Statut",
       cell: (org) => (
@@ -90,56 +110,81 @@ export default function PlatformOrganizationsPage() {
       ),
     },
     {
+      header: "Utilisateurs",
+      className: "text-right tabular-nums text-ink",
+      cell: (org) => org._count.users,
+    },
+    {
       header: "Créée le",
-      className: "text-ink-muted",
-      cell: (org) => new Date(org.createdAt).toLocaleDateString("fr-FR"),
+      className: "whitespace-nowrap text-ink-muted",
+      cell: (org) => formatDate(org.createdAt),
     },
     {
       header: "",
       className: "text-right",
       cell: (org) => (
-        <button
-          type="button"
-          className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
+        <Button
+          variant="ghost"
+          size="sm"
+          className={org.isActive ? "text-status-danger hover:text-status-danger" : undefined}
           onClick={() => handleToggleStatus(org)}
           disabled={pendingId === org.id}
         >
           {org.isActive ? "Suspendre" : "Réactiver"}
-        </button>
+        </Button>
       ),
     },
   ];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-8">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Console Super Admin</p>
-          <h1 className="font-display text-2xl font-bold text-ink">Organisations</h1>
-        </div>
-        <Button onClick={() => setIsModalOpen(true)}>Nouvelle organisation</Button>
-      </header>
+    <PlatformPage>
+      <PlatformPageHeader
+        title="Organisations"
+        description={
+          isLoading
+            ? "Chargement…"
+            : `${organizations.length} organisation${organizations.length > 1 ? "s" : ""} · ${activeCount} active${activeCount > 1 ? "s" : ""} · ${suspendedCount} suspendue${suspendedCount > 1 ? "s" : ""}`
+        }
+        actions={
+          <>
+            <Link
+              href="/platform/organizations/deleted"
+              className="text-sm font-medium text-ink-muted hover:text-ink hover:underline"
+            >
+              Organisations supprimées
+            </Link>
+            <Button onClick={() => setIsModalOpen(true)}>Nouvelle organisation</Button>
+          </>
+        }
+      />
 
-      {notice ? (
-        <p className="rounded-md border border-forest-600/30 bg-forest-600/10 px-3 py-2 text-sm text-forest-600">
-          {notice}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
-          {error}
-        </p>
-      ) : null}
+      {notice ? <PlatformNotice tone="success">{notice}</PlatformNotice> : null}
+      {error ? <PlatformNotice tone="danger">{error}</PlatformNotice> : null}
+
+      <nav aria-label="Filtrer par statut" className="flex w-fit gap-1 rounded-md border border-border bg-surface p-1">
+        {STATUS_FILTERS.map((filter) => (
+          <Link
+            key={filter.value}
+            href={filter.value === "toutes" ? "/platform/organizations" : `/platform/organizations?statut=${filter.value}`}
+            aria-current={statusFilter === filter.value ? "page" : undefined}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              statusFilter === filter.value ? "bg-forest-600 text-white" : "text-ink-muted hover:text-ink"
+            }`}
+          >
+            {filter.label}
+          </Link>
+        ))}
+      </nav>
 
       <AdminTable
         columns={columns}
-        rows={organizations}
+        rows={visibleOrganizations}
         rowKey={(org) => org.id}
         isLoading={isLoading}
-        emptyMessage="Aucune organisation."
+        emptyMessage={statusFilter === "suspendues" ? "Aucune organisation suspendue." : "Aucune organisation."}
       />
 
       {isModalOpen ? <OrganizationFormModal onClose={() => setIsModalOpen(false)} onSaved={handleCreated} /> : null}
-    </div>
+    </PlatformPage>
   );
 }

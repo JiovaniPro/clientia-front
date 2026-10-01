@@ -86,7 +86,7 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
   }
 
   return (
-    <Modal title="Envoyer un e-mail" onClose={onClose} widthClassName="max-w-lg">
+    <Modal title="Envoyer un e-mail" onClose={onClose} closeDisabled={isSending} widthClassName="max-w-lg">
       <div className="space-y-4">
         {!clientEmail ? (
           <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">

@@ -11,7 +11,9 @@ export type NotificationType =
   | "APPOINTMENT_REFUSED"
   | "APPOINTMENT_UPDATED"
   | "EVENT_INVITATION"
-  | "EVENT_REMINDER";
+  | "EVENT_REMINDER"
+  | "APPOINTMENT_DELEGATED"
+  | "APPOINTMENT_DELEGATION_SENT";
 
 export interface NotificationDTO {
   id: string;

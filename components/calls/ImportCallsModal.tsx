@@ -49,7 +49,7 @@ export function ImportCallsModal({ onClose, onImported }: ImportCallsModalProps)
   }
 
   return (
-    <Modal title="Importer des appels" onClose={onClose}>
+    <Modal title="Importer des appels" onClose={onClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Fichier .csv ou .xlsx avec colonnes prénom/nom/téléphone/email (alias FR ou EN reconnus). Chaque import crée
@@ -71,7 +71,7 @@ export function ImportCallsModal({ onClose, onImported }: ImportCallsModalProps)
         ) : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
             {result ? "Fermer" : "Annuler"}
           </Button>
           {result ? null : (

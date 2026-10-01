@@ -1,25 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { AppointmentsListModal } from "@/components/reports/AppointmentsListModal";
+import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CallsListModal } from "@/components/reports/CallsListModal";
 import { ClientsListModal } from "@/components/reports/ClientsListModal";
 import { getConfigurableList } from "@/lib/api/configurableLists";
-import type { AppointmentsReportDTO, CallsReportDTO, ClientsReportDTO } from "@/lib/api/reports";
-import { getAppointmentsReport, getCallsReport, getClientsReport } from "@/lib/api/reports";
+import type { CallsReportDTO, ClientsReportDTO } from "@/lib/api/reports";
+import { getCallsReport, getClientsReport } from "@/lib/api/reports";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 /** Exporté — réutilisé par le tableau de bord Agent RDV (§5.27). */
@@ -53,9 +40,12 @@ function periodRange(days: number) {
   return { from, to };
 }
 
-function personLabel(user: { firstName: string | null; lastName: string | null } | null, fallback: string) {
-  if (!user) return fallback;
-  return `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || fallback;
+/** Plage horaire affichée : heures ouvrées (8h–19h) élargies à toute heure qui a de l'activité. */
+function visibleHours(byHour: CallsReportDTO["byHour"]) {
+  const active = byHour.filter((h) => h.count > 0).map((h) => h.hour);
+  const start = Math.min(8, ...active);
+  const end = Math.max(19, ...active);
+  return byHour.filter((h) => h.hour >= start && h.hour <= end).map((h) => ({ label: `${h.hour}h`, count: h.count }));
 }
 
 /** Un arrondi à l'entier écraserait un taux réel-mais-faible (ex. 4/1298 ≈ 0,3%)
@@ -85,12 +75,10 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
   const { authedFetch } = useAuth();
 
   const [period, setPeriod] = useState<PeriodKey>("week");
-  const [showAppointmentsDrillDown, setShowAppointmentsDrillDown] = useState(false);
   const [callsDrillDown, setCallsDrillDown] = useState<{ title: string; statusKeys?: string[] } | null>(null);
   const [showClientsDrillDown, setShowClientsDrillDown] = useState(false);
   const [calls, setCalls] = useState<CallsReportDTO | null>(null);
   const [clients, setClients] = useState<ClientsReportDTO | null>(null);
-  const [appointments, setAppointments] = useState<AppointmentsReportDTO | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,14 +88,13 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
     setIsLoading(true);
     setError(null);
     try {
-      const [callsData, clientsData, appointmentsData] = await Promise.all([
+      const [callsData, clientsData] = await Promise.all([
         authedFetch((token) => getCallsReport({ from, to, userId }, token)),
-        authedFetch((token) => getClientsReport({ from, to }, token)),
-        authedFetch((token) => getAppointmentsReport({ from, to, userId }, token)),
+        // userId transmis : sans lui, l'agent choisi sur /my-stats voyait les dossiers de toute l'organisation.
+        authedFetch((token) => getClientsReport({ from, to, userId }, token)),
       ]);
       setCalls(callsData);
       setClients(clientsData);
-      setAppointments(appointmentsData);
     } catch {
       setError("Impossible de charger les statistiques.");
     } finally {
@@ -131,11 +118,8 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
     setCallsDrillDown({ title: `Appels concluants — ${periodLabel}`, statusKeys: triggeringKeys });
   }
 
-  const byUserChartData = calls?.byUser.map((u) => ({ name: personLabel(u.user, "Agent supprimé"), count: u.count })) ?? [];
+  const byHourChartData = calls ? visibleHours(calls.byHour) : [];
   const byStatusChartData = calls?.byStatus.map((s) => ({ name: s.label, count: s.count })) ?? [];
-  const byFinalStatusChartData = clients?.byFinalStatus.map((s) => ({ name: s.label, count: s.count })) ?? [];
-  const appointmentsByStatusChartData =
-    appointments?.byStatus.map((s) => ({ name: APPOINTMENT_STATUS_LABELS[s.status] ?? s.status, count: s.count })) ?? [];
 
   return (
     <div className="space-y-6">
@@ -163,24 +147,31 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
         </p>
       ) : null}
 
-      {isLoading || !calls || !clients || !appointments ? (
+      {isLoading || !calls || !clients ? (
         <p className="text-sm text-ink-muted">Chargement…</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {/* Chiffre principal : appels réellement traités, pas les leads importés en attente. */}
             <StatCard
-              label="Appels"
-              value={calls.total}
+              label="Appels qualifiés"
+              value={calls.qualified}
+              detail={`sur ${calls.total} appel${calls.total > 1 ? "s" : ""} de la période`}
               onClick={calls.total > 0 ? () => setCallsDrillDown({ title: `Appels — ${periodLabel}` }) : undefined}
             />
+            {/* Appels qualifiés au statut qui déclenche un dossier (« RDV pris » ou équivalent configuré) : la vraie
+                activité de prise de rendez-vous, y compris pour un Agent calliste (qui ne crée jamais d'événement
+                calendrier lui-même — l'ancienne carte comptait ces événements et restait donc à 0). */}
             <StatCard
-              label="Rendez-vous"
-              value={appointments.total}
-              onClick={appointments.total > 0 ? () => setShowAppointmentsDrillDown(true) : undefined}
+              label="Rendez-vous pris"
+              value={calls.conversion.triggeringCount}
+              detail="appels qualifiés « RDV pris »"
+              onClick={calls.conversion.triggeringCount > 0 ? openConversionDrillDown : undefined}
             />
             <StatCard
               label="Nouveaux dossiers"
               value={clients.total}
+              detail="créés sur la période"
               onClick={clients.total > 0 ? () => setShowClientsDrillDown(true) : undefined}
             />
             <StatCard
@@ -191,55 +182,39 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <ChartCard title={userId ? "Appels" : "Appels par agent"}>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={byUserChartData} layout="vertical" margin={{ left: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" allowDecimals={false} stroke="var(--color-ink-muted)" fontSize={12} />
-                  <YAxis type="category" dataKey="name" stroke="var(--color-ink-muted)" fontSize={12} width={110} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="var(--color-forest-600)" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <ChartCard title="Appels qualifiés par heure">
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={byHourChartData} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                    <XAxis dataKey="label" stroke="var(--color-ink-muted)" fontSize={12} />
+                    <YAxis allowDecimals={false} stroke="var(--color-ink-muted)" fontSize={12} />
+                    <Tooltip formatter={(value) => [value, "Appels qualifiés"]} />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="var(--color-forest-600)"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "var(--color-forest-600)" }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
 
             <ChartCard title="Appels par statut">
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={byStatusChartData} dataKey="count" nameKey="name" outerRadius={90} label>
+                  {/* Pas d'étiquettes extérieures (ni traits) : le détail d'une part est dans l'info-bulle au survol. */}
+                  <Pie data={byStatusChartData} dataKey="count" nameKey="name" outerRadius={80} label={false} labelLine={false}>
                     {byStatusChartData.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Rendez-vous par statut">
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={appointmentsByStatusChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis dataKey="name" stroke="var(--color-ink-muted)" fontSize={12} />
-                  <YAxis allowDecimals={false} stroke="var(--color-ink-muted)" fontSize={12} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="var(--color-terracotta-500)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Dossiers par statut final">
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie data={byFinalStatusChartData} dataKey="count" nameKey="name" outerRadius={90} label>
-                    {byFinalStatusChartData.map((_, i) => (
-                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -247,20 +222,9 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
         </>
       )}
 
-      {/* §6.13 — la portée hérite du contexte déjà affiché sur cette carte : userId absent = ce que
-          calendar.viewAll autorise (org entière sur /admin/dashboard) ; userId renseigné = ce collègue
-          précis (agent lui-même ou choisi via le sélecteur sur /my-stats), jamais recalculée ici. */}
-      {showAppointmentsDrillDown ? (
-        <AppointmentsListModal
-          title={`Rendez-vous — ${periodLabel}`}
-          from={from.toISOString()}
-          to={to.toISOString()}
-          agentRdvId={userId}
-          onClose={() => setShowAppointmentsDrillDown(false)}
-        />
-      ) : null}
-
-      {/* §6.13 — même héritage de portée que ci-dessus, sur userId (calls.viewAll côté backend). */}
+      {/* §6.13 — la portée hérite du contexte déjà affiché sur la carte : userId absent = vue globale
+          (/admin/dashboard, calls.viewAll côté backend) ; userId renseigné = ce collègue précis (agent
+          lui-même ou choisi via le sélecteur sur /my-stats), jamais recalculée ici. */}
       {callsDrillDown ? (
         <CallsListModal
           title={callsDrillDown.title}

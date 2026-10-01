@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import type { OrganizationDTO } from "@/lib/api/organizations";
 import { getCurrentOrganization, updateCurrentOrganization } from "@/lib/api/organizations";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 /**
  * Écran d'administration §5.24 — paramètres de l'organisation. Le plus simple des
@@ -27,6 +28,9 @@ export default function AdminOrganizationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // §6.25 lot E — beforeunload seulement. Référence prise une fois l'organisation
+  // chargée : avant, la couleur vaut le défaut "#2f6f4f", pas celle de l'organisation.
+  const { markClean } = useUnsavedChangesGuard({ name, logoUrl, primaryColor }, undefined, organization !== null);
 
   const fetchOrganization = useCallback(async () => {
     setIsLoading(true);
@@ -70,6 +74,7 @@ export default function AdminOrganizationPage() {
         ),
       );
       setOrganization(updated);
+      markClean();
       setNotice("Paramètres enregistrés.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");

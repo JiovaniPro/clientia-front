@@ -23,7 +23,22 @@ interface AppointmentsListModalProps {
   agentRdvId?: string;
   /** Filtre CLIENT-SIDE (GET /calendar-events n'a pas de paramètre statut) — ex. ACTIVE_APPOINTMENT_STATUSES pour "RDV à venir", ["REFUSE"] pour "Refusés". Absent = tous statuts. */
   statusFilter?: AppointmentStatus[];
+  /** Suivi honoré/manqué — filtre CLIENT-SIDE, ne retient que les RDV confirmés terminés dans cet état. */
+  attendanceFilter?: AttendanceState;
   onClose: () => void;
+}
+
+export type AttendanceState = "honored" | "missed" | "unmarked";
+
+const ATTENDANCE_LABELS: Record<AttendanceState, string> = { honored: "Honoré", missed: "Manqué", unmarked: "Non marqué" };
+
+/**
+ * État de présence d'un RDV, ou null s'il n'est pas éligible — mêmes critères que les
+ * compteurs backend (reports/service.ts::countAttendance) : CONFIRME et déjà terminé.
+ */
+function attendanceState(e: CalendarEventDTO, now: number): AttendanceState | null {
+  if (e.status !== "CONFIRME" || new Date(e.endAt).getTime() >= now) return null;
+  return e.attended === true ? "honored" : e.attended === false ? "missed" : "unmarked";
 }
 
 function formatDateTime(iso: string) {
@@ -43,7 +58,16 @@ function formatDateTime(iso: string) {
  * reste borné. Si ce volume devient un vrai problème de performance, la pagination serveur sera à
  * reconsidérer alors — pas anticipée ici.
  */
-export function AppointmentsListModal({ title, from, to, agentRdvId, statusFilter, onClose }: AppointmentsListModalProps) {
+export function AppointmentsListModal({
+  title,
+  from,
+  to,
+  agentRdvId,
+  statusFilter,
+  attendanceFilter,
+  onClose,
+}: AppointmentsListModalProps) {
+  const [now] = useState(() => Date.now());
   const { authedFetch } = useAuth();
 
   const [events, setEvents] = useState<CalendarEventDTO[] | null>(null);
@@ -58,7 +82,18 @@ export function AppointmentsListModal({ title, from, to, agentRdvId, statusFilte
           listEvents({ from, to, type: "APPOINTMENT", ...(agentRdvId ? { agentRdvId } : {}) }, token),
         );
         if (cancelled) return;
-        const filtered = statusFilter ? data.filter((e) => e.status && statusFilter.includes(e.status)) : data;
+        // GET /calendar-events renvoie les RDV qui CHEVAUCHENT [from, to] ; les cartes
+        // (getAppointmentsReport/History) comptent ceux qui y COMMENCENT. Sans ce filtre,
+        // un RDV à cheval sur le début de plage apparaîtrait ici sans être compté sur la carte.
+        const fromMs = Date.parse(from);
+        const toMs = Date.parse(to);
+        const filtered = data.filter(
+          (e) =>
+            Date.parse(e.startAt) >= fromMs &&
+            Date.parse(e.startAt) <= toMs &&
+            (!statusFilter || (e.status && statusFilter.includes(e.status))) &&
+            (!attendanceFilter || attendanceState(e, now) === attendanceFilter),
+        );
         setEvents([...filtered].sort((a, b) => a.startAt.localeCompare(b.startAt)));
       } catch {
         if (!cancelled) setError("Impossible de charger le détail de ces rendez-vous.");
@@ -94,8 +129,24 @@ export function AppointmentsListModal({ title, from, to, agentRdvId, statusFilte
                   <p className="text-ink">{e.title}</p>
                   <p className="text-xs text-ink-muted">{formatDateTime(e.startAt)}</p>
                 </div>
-                <span className="text-xs text-ink-muted">
+                <span className="flex items-center gap-2 text-xs text-ink-muted">
                   {e.status ? (APPOINTMENT_STATUS_LABELS[e.status] ?? e.status) : "—"}
+                  {(() => {
+                    const state = attendanceState(e, now);
+                    return state ? (
+                      <span
+                        className={
+                          state === "missed"
+                            ? "rounded bg-status-danger/10 px-1.5 py-0.5 font-medium text-status-danger"
+                            : state === "honored"
+                              ? "rounded bg-forest-50 px-1.5 py-0.5 font-medium text-forest-600"
+                              : "rounded border border-border px-1.5 py-0.5"
+                        }
+                      >
+                        {ATTENDANCE_LABELS[state]}
+                      </span>
+                    ) : null;
+                  })()}
                 </span>
               </li>
             ))}

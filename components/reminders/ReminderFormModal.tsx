@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api/client";
 import type { ReminderDTO, ReminderStatus } from "@/lib/api/reminders";
 import { createReminder, updateReminder } from "@/lib/api/reminders";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface ReminderFormModalProps {
   /** Présent = édition, absent = création. Le backend gate `PATCH /reminders/:id`
@@ -41,6 +42,7 @@ export function ReminderFormModal({ reminder, onClose, onSaved }: ReminderFormMo
   const [status, setStatus] = useState<ReminderStatus>(reminder?.status ?? "PENDING");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard({ title, description, dueAt, status }, onClose);
 
   async function handleSubmit() {
     setError(null);
@@ -67,7 +69,8 @@ export function ReminderFormModal({ reminder, onClose, onSaved }: ReminderFormMo
   }
 
   return (
-    <Modal title={reminder ? "Modifier le rappel" : "Nouveau rappel"} onClose={onClose}>
+    <>
+    <Modal title={reminder ? "Modifier le rappel" : "Nouveau rappel"} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <Input
           label="Titre"
@@ -107,7 +110,7 @@ export function ReminderFormModal({ reminder, onClose, onSaved }: ReminderFormMo
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -116,5 +119,7 @@ export function ReminderFormModal({ reminder, onClose, onSaved }: ReminderFormMo
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

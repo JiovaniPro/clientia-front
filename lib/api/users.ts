@@ -6,6 +6,8 @@ export interface UserListItemDTO {
   lastName: string | null;
   email: string;
   isActive: boolean;
+  /** Rang d'ancienneté → couleur stable dans la vue calendrier partagée (lib/calendar/personColors.ts). */
+  createdAt: string;
   role: { id: string; name: string };
 }
 

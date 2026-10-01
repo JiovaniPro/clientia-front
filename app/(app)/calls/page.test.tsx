@@ -6,11 +6,21 @@ import CallsPage from "./page";
 
 const listCalls = vi.fn();
 const deleteCall = vi.fn();
+const reassignCall = vi.fn();
+const reassignCalls = vi.fn();
 let permissions: string[] = [];
 
 vi.mock("@/lib/api/calls", () => ({
   listCalls: (...a: unknown[]) => listCalls(...a),
   deleteCall: (...a: unknown[]) => deleteCall(...a),
+  reassignCall: (...a: unknown[]) => reassignCall(...a),
+  reassignCalls: (...a: unknown[]) => reassignCalls(...a),
+}));
+vi.mock("@/lib/api/users", () => ({
+  listUsers: vi.fn().mockResolvedValue([
+    { id: "agent-a", firstName: "Ana", lastName: "Calliste", email: "a@x", isActive: true, role: { id: "r", name: "Agent calliste" } },
+    { id: "agent-b", firstName: "Ben", lastName: "Calliste", email: "b@x", isActive: true, role: { id: "r", name: "Agent calliste" } },
+  ]),
 }));
 vi.mock("@/lib/api/configurableLists", () => ({
   getConfigurableList: vi.fn().mockResolvedValue([{ id: "s1", key: "A_CONTACTER", label: "À contacter", color: "#111", isDefault: true }]),
@@ -26,6 +36,7 @@ vi.mock("@/components/calls/ImportCallsModal", () => ({ ImportCallsModal: () => 
 function call(id: string, firstName: string): CallDTO {
   return {
     id, firstName, lastName: "Test", toNumber: `+33${id}`, type: "PROSPECTION", waveNumber: 1,
+    userId: "admin-1", user: { id: "admin-1", firstName: "Admin", lastName: "Import" },
     status: { id: "s1", key: "A_CONTACTER", label: "À contacter", color: "#111" },
     occurredAt: new Date(2026, 8, 21, 10, 0).toISOString(),
   } as unknown as CallDTO;
@@ -122,5 +133,57 @@ describe("/calls — suppression d'un appel", () => {
     fireEvent.click(within(screen.getByText("Supprimer cet appel").closest("div.rounded-lg")! as HTMLElement).getByRole("button", { name: "Supprimer" }));
 
     await waitFor(() => expect(listCalls.mock.calls.at(-1)![0].page).toBe(1));
+  });
+});
+
+describe("/calls — attribution d'un appel par l'admin", () => {
+  beforeEach(() => {
+    listCalls.mockReset();
+    reassignCall.mockReset();
+    reassignCalls.mockReset();
+    listCalls.mockResolvedValue({ items: [A, B], total: 2 });
+  });
+
+  it("sans calls.viewAll : ni colonne Agent ni cases à cocher", async () => {
+    permissions = ["calls.view"];
+    render(<CallsPage />);
+    await screen.findByText(/Alice/);
+    expect(screen.queryByText("Agent")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("sélecteur par ligne : propriétaire actuel affiché (admin importateur), choisir un agent réattribue cet appel", async () => {
+    permissions = ["calls.view", "calls.viewAll"];
+    reassignCall.mockResolvedValue({ count: 1, userId: "agent-b" });
+    render(<CallsPage />);
+    const select = await screen.findByLabelText("Agent de l'appel +331");
+    await waitFor(() => expect(within(select).getByRole("option", { name: "Ben Calliste" })).toBeInTheDocument());
+    expect(select).toHaveValue("admin-1");
+    expect(within(select).getByRole("option", { name: "Admin Import" })).toBeDisabled();
+
+    fireEvent.change(select, { target: { value: "agent-b" } });
+
+    await waitFor(() => expect(reassignCall).toHaveBeenCalledWith("1", "agent-b", "tok"));
+    expect(await screen.findByText("1 appel attribué à Ben Calliste.")).toBeInTheDocument();
+    expect(listCalls).toHaveBeenCalledTimes(2); // liste rechargée
+  });
+
+  it("sélection multiple : « Tout sélectionner » puis « Attribuer à… » réattribue tout d'un coup", async () => {
+    permissions = ["calls.view", "calls.viewAll"];
+    reassignCalls.mockResolvedValue({ count: 2, userId: "agent-a" });
+    render(<CallsPage />);
+    await screen.findByText(/Alice/);
+
+    fireEvent.click(screen.getByLabelText("Tout sélectionner sur cette page"));
+    expect(screen.getByText("2 appels sélectionnés")).toBeInTheDocument();
+    const attribuer = screen.getByRole("button", { name: "Attribuer" });
+    expect(attribuer).toBeDisabled(); // aucun agent choisi
+    await waitFor(() => expect(screen.getAllByRole("option", { name: "Ana Calliste" }).length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Attribuer à"), { target: { value: "agent-a" } });
+    fireEvent.click(attribuer);
+
+    await waitFor(() => expect(reassignCalls).toHaveBeenCalledWith(["1", "2"], "agent-a", "tok"));
+    expect(await screen.findByText("2 appels attribués à Ana Calliste.")).toBeInTheDocument();
+    expect(screen.queryByText("2 appels sélectionnés")).not.toBeInTheDocument();
   });
 });

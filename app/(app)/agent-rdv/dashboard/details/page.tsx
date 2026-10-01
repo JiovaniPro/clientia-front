@@ -25,12 +25,11 @@ function formatRate(rate: number) {
 /**
  * §5.28 "Détail du suivi" — historique période par période. Colonnes disponibles
  * aujourd'hui uniquement (arbitrage acté avec l'utilisateur) : RDV total,
- * confirmés, refusés, contrats signés, taux de conversion. "RDV honorés" et
- * "manqués" restent absents — reportés à un chantier séparé (voir l'audit
- * §5.25-§5.28), jamais improvisés.
+ * confirmés, refusés, honorés / manqués / non marqués (chantier honoré/manqué,
+ * sous-lot 4), contrats signés, taux de conversion.
  */
 export default function AgentRdvDetailsPage() {
-  const { authedFetch } = useAuth();
+  const { authedFetch, user, hasPermission } = useAuth();
 
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [periods, setPeriods] = useState<AppointmentsHistoryPeriodDTO[]>([]);
@@ -65,6 +64,11 @@ export default function AgentRdvDetailsPage() {
     { header: "RDV total", className: "text-ink-muted", cell: (p) => p.totalAppointments },
     { header: "Confirmés", className: "text-ink-muted", cell: (p) => p.confirmedCount },
     { header: "Refusés", className: "text-ink-muted", cell: (p) => p.refusedCount },
+    // RDV confirmés et terminés de la période uniquement — pas de date de coupure :
+    // les anciens RDV jamais marqués comptent "non marqués" (décision actée).
+    { header: "Honorés", className: "text-ink-muted", cell: (p) => p.honoredCount },
+    { header: "Manqués", className: "text-ink-muted", cell: (p) => p.missedCount },
+    { header: "Non marqués", className: "text-ink-muted", cell: (p) => p.unmarkedCount },
     { header: "Contrats signés", className: "text-ink-muted", cell: (p) => p.signedContracts },
     { header: "Taux de conversion", className: "text-ink-muted", cell: (p) => formatRate(p.conversionRate) },
     {
@@ -127,6 +131,9 @@ export default function AgentRdvDetailsPage() {
           title={`RDV du ${formatDate(detailPeriod.from)} au ${formatDate(detailPeriod.to)}`}
           from={detailPeriod.from}
           to={detailPeriod.to}
+          // Vue calendrier partagée : GET /calendar-events ne restreint plus à ses propres RDV —
+          // on aligne explicitement le détail sur la portée des chiffres (reports.viewAll ou soi).
+          agentRdvId={hasPermission("reports.viewAll") ? undefined : user?.id}
           onClose={() => setDetailPeriod(null)}
         />
       ) : null}

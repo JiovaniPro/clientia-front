@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import type { FormEvent } from "react";
+import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api/client";
@@ -37,9 +38,12 @@ function LoginForm() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-cream px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="space-y-1 text-center">
+        <div className="space-y-2 text-center">
+          {/* Le texte alternatif du logo (« CLIENTIA ») reste le nom accessible du titre. */}
+          <h1 className="flex justify-center">
+            <Logo className="h-14" priority />
+          </h1>
           <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">CRM · call-tracking</p>
-          <h1 className="font-display text-3xl font-bold text-ink">CLIENTIA</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-border bg-surface p-6 shadow-flat">
@@ -80,13 +84,6 @@ function LoginForm() {
             {isSubmitting ? "Connexion…" : "Se connecter"}
           </Button>
         </form>
-
-        <p className="text-center text-sm text-ink-muted">
-          Pas encore d&apos;espace de travail ?{" "}
-          <Link href="/register-organization" className="font-medium text-forest-600 hover:underline">
-            Créer une organisation
-          </Link>
-        </p>
       </div>
     </div>
   );

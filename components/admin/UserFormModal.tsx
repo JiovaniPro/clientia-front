@@ -10,6 +10,7 @@ import type { UserListItemDTO } from "@/lib/api/users";
 import { createUser, updateUser } from "@/lib/api/users";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface UserFormModalProps {
   /** Présent = édition, absent = création. */
@@ -35,6 +36,7 @@ export function UserFormModal({ user, roles, onClose, onSaved }: UserFormModalPr
   const [roleId, setRoleId] = useState(user?.role.id ?? roles[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard({ email, firstName, lastName, roleId }, onClose);
 
   async function handleSubmit() {
     setError(null);
@@ -63,7 +65,8 @@ export function UserFormModal({ user, roles, onClose, onSaved }: UserFormModalPr
   }
 
   return (
-    <Modal title={isEdit ? "Modifier l'utilisateur" : "Nouvel utilisateur"} onClose={onClose}>
+    <>
+    <Modal title={isEdit ? "Modifier l'utilisateur" : "Nouvel utilisateur"} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <Input label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <div className="grid grid-cols-2 gap-3">
@@ -88,7 +91,7 @@ export function UserFormModal({ user, roles, onClose, onSaved }: UserFormModalPr
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -97,5 +100,7 @@ export function UserFormModal({ user, roles, onClose, onSaved }: UserFormModalPr
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

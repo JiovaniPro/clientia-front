@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api/client";
 import { changePassword, updateMe } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 /**
  * §5.11 — écran "Mon compte", accessible à tout utilisateur connecté (aucune
@@ -49,6 +50,9 @@ function InfoSection() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // §6.25 lot E — beforeunload seulement. La section "Mot de passe" n'est volontairement
+  // pas surveillée (pas de garde sur les mots de passe, coût de perte faible).
+  const { markClean } = useUnsavedChangesGuard({ firstName, lastName, email });
 
   async function handleSave() {
     setError(null);
@@ -59,6 +63,7 @@ function InfoSection() {
         updateMe({ firstName: firstName || undefined, lastName: lastName || undefined, email }, token),
       );
       updateUser(updated);
+      markClean();
       setSuccess(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");

@@ -11,6 +11,7 @@ import type { CallDTO } from "@/lib/api/calls";
 import { getCall, listCalls } from "@/lib/api/calls";
 import { ApiError } from "@/lib/api/client";
 import type {
+  AppointmentStatusHistoryDTO,
   AttendeeRole,
   CalendarEventDTO,
   ConflictSeverity,
@@ -29,12 +30,14 @@ import {
   createEvent,
   createEventCategory,
   createReminder,
+  delegateAppointment,
   deleteEvent,
   deleteEventCategory,
   deleteReminder,
   getAgentAvailability,
   getEvent,
   listEventCategories,
+  markAttendance,
   listReminders,
   removeAttendee,
   resolveConflict,
@@ -46,6 +49,7 @@ import { toDatetimeLocal } from "@/lib/calendar/dateUtils";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 import { notifyNotificationsBadgeStale } from "@/lib/notifications/badgeSignal";
 
 const EVENT_TYPES: EventType[] = ["MEETING", "PERSONAL", "BLOCKED_TIME", "REMINDER_EVENT", "APPOINTMENT"];
@@ -62,6 +66,40 @@ const ATTENDEE_ROLE_LABEL: Record<AttendeeRole, string> = {
   OPTIONAL: "Optionnel",
   ORGANIZER: "Organisateur",
 };
+
+/**
+ * Sous-lot 6 délégation — étapes DELEGATION/DELEGATION_RETURN de la chaîne courante,
+ * dans l'ordre chronologique. `history` arrive du plus récent au plus ancien (getEvent) ;
+ * on s'arrête à la dernière ligne d'origine (oldStatus null : création, ou événement
+ * redevenu RDV), même borne que findLastDelegationTo côté backend.
+ */
+function delegationChainOf(history: AppointmentStatusHistoryDTO[]): AppointmentStatusHistoryDTO[] {
+  const steps: AppointmentStatusHistoryDTO[] = [];
+  for (const row of history) {
+    if (row.oldStatus === null) break;
+    if (row.kind) steps.push(row);
+  }
+  return steps.reverse();
+}
+
+function personName(u: { firstName: string | null; lastName: string | null } | null, fallback: string): string {
+  return (u && `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()) || fallback;
+}
+
+function describeDelegationStep(step: AppointmentStatusHistoryDTO): string {
+  const from = personName(step.fromAgent, "Non assigné");
+  const to = personName(step.toAgent, "Non assigné");
+  const date = new Date(step.changedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  // Un admin/organisateur peut déléguer le RDV d'un autre : on nomme alors l'auteur.
+  const by =
+    step.kind === "DELEGATION" && step.changedBy.id !== step.fromAgentId
+      ? ` (par ${personName(step.changedBy, "un collègue")})`
+      : "";
+  const comment = step.comment ? ` — « ${step.comment} »` : "";
+  return step.kind === "DELEGATION"
+    ? `${from} → ${to}${by} · ${date}${comment}`
+    : `${from} a refusé, renvoyé à ${to} · ${date}${comment}`;
+}
 
 const ATTENDEE_STATUS_LABEL: Record<EventAttendeeDTO["status"], string> = {
   PENDING: "En attente",
@@ -174,13 +212,26 @@ export function EventPanel({
    * organisateur/agent RDV assigné (ça suffit pour éditer le reste de l'événement),
    * il faut EN PLUS la permission dédiée — un agent calliste organisateur d'un
    * rendez-vous n'a jamais cette permission par défaut (vérifié en base réelle).
+   * `calendar.viewAll` compte aussi (via canWriteThisEvent), comme côté backend :
+   * un admin non organisateur voit Confirmer/Refuser/Déléguer. Déléguer exige en plus calendar.viewAll.
    */
-  const canManageAppointmentStatus = Boolean(
+  const canManageAppointmentStatus = canWriteThisEvent && hasPermission("calendar.manageAppointments");
+
+  /**
+   * Suivi honoré/manqué — contrôle strict du backend (markAppointmentAttendance) :
+   * l'agent RDV assigné ou calendar.viewAll, jamais l'organisateur seul.
+   */
+  const canMarkAttendance = Boolean(
     event &&
       user &&
       hasPermission("calendar.manageAppointments") &&
-      (isOrganizer || event.agentRdvId === user.id),
+      (event.agentRdvId === user.id || hasPermission("calendar.viewAll")),
   );
+  const now = new Date();
+  // Mêmes bornes que le backend : délégation refusée une fois le RDV commencé
+  // (assertNotInPast sur startAt), marquage seulement une fois terminé (endAt).
+  const hasStarted = Boolean(event && new Date(event.startAt) < now);
+  const hasEnded = Boolean(event && new Date(event.endAt) < now);
 
   const defaultStart = event ? new Date(event.startAt) : (initialStart ?? new Date());
   const defaultEnd = event ? new Date(event.endAt) : new Date(defaultStart.getTime() + 60 * 60_000);
@@ -231,8 +282,18 @@ export function EventPanel({
   const [appointmentStatusNotice, setAppointmentStatusNotice] = useState<string | null>(null);
   const [showRefuseReason, setShowRefuseReason] = useState(false);
   const [refuseReason, setRefuseReason] = useState("");
+  const [showDelegate, setShowDelegate] = useState(false);
+  const [delegateToId, setDelegateToId] = useState("");
+  const [delegateComment, setDelegateComment] = useState("");
+  const [delegationChain, setDelegationChain] = useState<AppointmentStatusHistoryDTO[]>([]);
+  const [attendance, setAttendance] = useState({
+    attended: event?.attended ?? null,
+    markedAt: event?.attendanceMarkedAt ?? null,
+    markedBy: event?.attendanceMarkedBy ?? null,
+  });
   const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<EventCategoryDTO | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [originalCategoryDeleted, setOriginalCategoryDeleted] = useState(false);
 
   useEffect(() => {
     authedFetch((token) => listEventCategories(token))
@@ -262,6 +323,7 @@ export function EventPanel({
       await authedFetch((token) => deleteEventCategory(id, token));
       setCategories((prev) => prev.filter((c) => c.id !== id));
       if (categoryId === id) setCategoryId("");
+      if (id === event?.categoryId) setOriginalCategoryDeleted(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible de supprimer la catégorie.");
     } finally {
@@ -281,6 +343,12 @@ export function EventPanel({
       .then((full) => {
         setAttendees(full.attendees ?? []);
         setConflicts(full.conflicts ?? []);
+        setDelegationChain(delegationChainOf(full.statusHistory ?? []));
+        setAttendance({
+          attended: full.attended ?? null,
+          markedAt: full.attendanceMarkedAt ?? null,
+          markedBy: full.attendanceMarkedBy ?? null,
+        });
       })
       .catch(() => setError("Impossible de charger les participants."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -493,12 +561,58 @@ export function EventPanel({
       const updated = await authedFetch((token) =>
         changeAppointmentStatus(event.id, { status, comment: status === "REFUSE" ? refuseReason || undefined : undefined }, token),
       );
+      // Refus d'un RDV reçu par délégation : renvoyé au délégant, l'appelant n'en est
+      // plus l'agent — même sortie qu'une délégation (panneau fermé, grille rafraîchie).
+      if (updated.agentRdvId !== event.agentRdvId) {
+        onSaved();
+        return;
+      }
       setAppointmentStatus(updated.status);
       setShowRefuseReason(false);
       setRefuseReason("");
       setAppointmentStatusNotice(status === "CONFIRME" ? "Rendez-vous confirmé." : "Rendez-vous refusé.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible de mettre à jour le statut du rendez-vous.");
+    } finally {
+      setIsChangingAppointmentStatus(false);
+    }
+  }
+
+  /**
+   * Délégation : l'agent RDV change, donc le délégant peut perdre l'accès au RDV —
+   * on ferme le panneau et rafraîchit la grille (onSaved) plutôt que de garder un
+   * formulaire dont le champ "Agent RDV" réécrirait l'ancien agent à l'enregistrement.
+   */
+  async function handleMarkAttendance(attended: boolean) {
+    if (!event) return;
+    setError(null);
+    setIsChangingAppointmentStatus(true);
+    try {
+      const updated = await authedFetch((token) => markAttendance(event.id, { attended }, token));
+      setAttendance({
+        attended: updated.attended,
+        markedAt: updated.attendanceMarkedAt,
+        markedBy: updated.attendanceMarkedBy ?? null,
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible d'enregistrer la présence.");
+    } finally {
+      setIsChangingAppointmentStatus(false);
+    }
+  }
+
+  async function handleDelegate() {
+    if (!event || !delegateToId) return;
+    setError(null);
+    setIsChangingAppointmentStatus(true);
+    try {
+      await authedFetch((token) =>
+        delegateAppointment(event.id, { toAgentId: delegateToId, comment: delegateComment.trim() || undefined }, token),
+      );
+      notifyNotificationsBadgeStale();
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de déléguer ce rendez-vous.");
     } finally {
       setIsChangingAppointmentStatus(false);
     }
@@ -644,9 +758,43 @@ export function EventPanel({
 
   const readOnly = isEdit && !canWriteThisEvent;
 
+  /**
+   * §6.25 lot D — surveillés : les 8 champs qui attendent "Enregistrer", plus les
+   * saisies secondaires non encore validées, comptées seulement tant qu'elles sont
+   * visibles (refermer leur sous-formulaire = abandon explicite). Jamais surveillé :
+   * ce qui part à l'API immédiatement (invités, rappels, catégories créées/supprimées,
+   * confirmer/refuser) ; ni minutes/méthode de rappel, préréglages non vidés après
+   * ajout. Lecture seule : `null`, donc jamais modifié.
+   */
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    readOnly
+      ? null
+      : {
+          title,
+          description,
+          type,
+          startAt,
+          endAt,
+          callId,
+          agentRdvId,
+          // Supprimer la catégorie de l'événement la lui retire aussi côté serveur : "" n'est alors pas une modification.
+          categoryId: originalCategoryDeleted && categoryId === "" ? (event?.categoryId ?? "") : categoryId,
+          pending: {
+            newCategoryName: isCreatingCategory ? newCategoryName.trim() : "",
+            newAttendeeEmail: attendeeMode === "external" ? newAttendeeEmail.trim() : "",
+            newAttendeeName: attendeeMode === "external" ? newAttendeeName.trim() : "",
+            selectedInternalUserId: attendeeMode === "internal" ? (selectedInternalUser?.id ?? "") : "",
+            refuseReason: showRefuseReason ? refuseReason.trim() : "",
+            delegateToId: showDelegate ? delegateToId : "",
+            delegateComment: showDelegate ? delegateComment.trim() : "",
+          },
+        },
+    onClose,
+  );
+
   return (
     <>
-      <Modal title={isEdit ? "Modifier l'événement" : "Nouvel événement"} onClose={onClose}>
+      <Modal title={isEdit ? "Modifier l'événement" : "Nouvel événement"} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <Input label="Titre" value={title} onChange={(e) => setTitle(e.target.value)} disabled={readOnly} required />
 
@@ -1107,29 +1255,79 @@ export function EventPanel({
               </p>
             ) : null}
 
+            {delegationChain.length > 0 ? (
+              <div className="text-xs text-ink-muted">
+                <p className="font-medium">Parcours de délégation</p>
+                <ol className="mt-0.5 space-y-0.5" aria-label="Parcours de délégation">
+                  {delegationChain.map((step) => (
+                    <li key={step.id}>{describeDelegationStep(step)}</li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+
             {appointmentStatusNotice ? (
               <p className="text-sm font-medium text-forest-600">{appointmentStatusNotice}</p>
             ) : null}
 
-            {isEdit && appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" && canManageAppointmentStatus ? (
+            {isEdit &&
+            canManageAppointmentStatus &&
+            (appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" || (appointmentStatus === "CONFIRME" && !hasStarted)) ? (
               <div className="space-y-2 border-t border-terracotta-500/30 pt-3">
                 <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => handleChangeAppointmentStatus("CONFIRME")}
-                    disabled={isChangingAppointmentStatus}
-                  >
-                    Confirmer
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setShowRefuseReason((v) => !v)}
-                    disabled={isChangingAppointmentStatus}
-                  >
-                    Refuser
-                  </Button>
+                  {appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" ? (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => handleChangeAppointmentStatus("CONFIRME")}
+                        disabled={isChangingAppointmentStatus}
+                      >
+                        Confirmer
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setShowRefuseReason((v) => !v)}
+                        disabled={isChangingAppointmentStatus}
+                      >
+                        Refuser
+                      </Button>
+                    </>
+                  ) : null}
+                  {/* Délégation réservée à calendar.viewAll (décision actée), comme delegateAppointment côté backend. */}
+                  {!hasStarted && hasPermission("calendar.viewAll") ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setShowDelegate((v) => !v)}
+                      disabled={isChangingAppointmentStatus}
+                    >
+                      Déléguer
+                    </Button>
+                  ) : null}
                 </div>
+                {showDelegate ? (
+                  <div className="space-y-2">
+                    <Select label="Transmettre à" value={delegateToId} onChange={(e) => setDelegateToId(e.target.value)}>
+                      <option value="">Sélectionner un collègue…</option>
+                      {agents
+                        .filter((a) => a.id !== event?.agentRdvId)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {`${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || a.email}
+                          </option>
+                        ))}
+                    </Select>
+                    <Input
+                      label="Commentaire (optionnel)"
+                      value={delegateComment}
+                      onChange={(e) => setDelegateComment(e.target.value)}
+                    />
+                    <Button size="sm" onClick={handleDelegate} disabled={!delegateToId || isChangingAppointmentStatus}>
+                      {isChangingAppointmentStatus ? "Envoi…" : "Transmettre"}
+                    </Button>
+                  </div>
+                ) : null}
                 {showRefuseReason ? (
                   <div className="space-y-2">
                     <Input
@@ -1150,6 +1348,49 @@ export function EventPanel({
               </div>
             ) : null}
 
+            {/* Suivi honoré/manqué — état visible par tout lecteur du RDV ; marquage et
+                correction seulement sur un RDV confirmé terminé, pour l'agent assigné ou viewAll. */}
+            {attendance.attended !== null ? (
+              <p className="text-sm text-ink">
+                Présence : <span className="font-medium">{attendance.attended ? "Honoré" : "Manqué"}</span>
+                <span className="text-xs text-ink-muted">
+                  {" "}
+                  · marqué par {personName(attendance.markedBy, "un collègue")}
+                  {attendance.markedAt
+                    ? ` le ${new Date(attendance.markedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`
+                    : ""}
+                </span>
+              </p>
+            ) : null}
+            {isEdit && event?.type === "APPOINTMENT" && appointmentStatus === "CONFIRME" && hasEnded && canMarkAttendance ? (
+              <div className="flex gap-2 border-t border-terracotta-500/30 pt-3">
+                {attendance.attended === null ? (
+                  <>
+                    <Button size="sm" onClick={() => handleMarkAttendance(true)} disabled={isChangingAppointmentStatus}>
+                      Honoré
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleMarkAttendance(false)}
+                      disabled={isChangingAppointmentStatus}
+                    >
+                      Manqué
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleMarkAttendance(!attendance.attended)}
+                    disabled={isChangingAppointmentStatus}
+                  >
+                    {attendance.attended ? "Corriger : marquer manqué" : "Corriger : marquer honoré"}
+                  </Button>
+                )}
+              </div>
+            ) : null}
+
             {!isEdit || event?.type !== "APPOINTMENT" ? (
               <Select label="Appel rattaché" value={callId} onChange={(e) => setCallId(e.target.value)} disabled={readOnly}>
                 <option value="">Sélectionner…</option>
@@ -1160,7 +1401,16 @@ export function EventPanel({
                 ))}
               </Select>
             ) : null}
-            <Select label="Agent RDV" value={agentRdvId} onChange={(e) => setAgentRdvId(e.target.value)} disabled={readOnly}>
+            {/* Sous-lot 5 délégation : sur un RDV existant, changer d'agent passe
+                obligatoirement par "Déléguer" (historique + notifications) — le champ
+                ne reste libre qu'à la première assignation (création, ou événement
+                qui devient un RDV). Le backend applique la même règle (updateEvent). */}
+            <Select
+              label="Agent RDV"
+              value={agentRdvId}
+              onChange={(e) => setAgentRdvId(e.target.value)}
+              disabled={readOnly || (isEdit && event?.type === "APPOINTMENT")}
+            >
               <option value="">Non assigné</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -1168,6 +1418,17 @@ export function EventPanel({
                 </option>
               ))}
             </Select>
+            {isEdit &&
+            event?.type === "APPOINTMENT" &&
+            canManageAppointmentStatus &&
+            !hasStarted &&
+            (appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" || appointmentStatus === "CONFIRME") ? (
+              <p className="text-xs text-ink-muted">
+                {hasPermission("calendar.viewAll")
+                  ? "Pour changer d'agent, utilisez « Déléguer »."
+                  : "Pour changer d'agent, demandez à un administrateur."}
+              </p>
+            ) : null}
             {agentRdvId && agentBusyCount !== null ? (
               <p
                 className={`text-xs font-medium ${agentBusyCount > 0 ? "text-status-danger" : "text-forest-600"}`}
@@ -1200,7 +1461,7 @@ export function EventPanel({
             <span />
           )}
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
               {readOnly ? "Fermer" : "Annuler"}
             </Button>
             {!readOnly ? (
@@ -1212,6 +1473,8 @@ export function EventPanel({
         </div>
       </div>
       </Modal>
+
+      {confirmElement}
 
       {categoryDeleteTarget ? (
         <ConfirmModal

@@ -12,14 +12,19 @@ import { QualifyCallModal } from "@/components/calls/QualifyCallModal";
 import { NewCallModal } from "@/components/calls/NewCallModal";
 import { ImportCallsModal } from "@/components/calls/ImportCallsModal";
 import type { CallDTO, CallType, ListCallsFilters } from "@/lib/api/calls";
-import { deleteCall, listCalls } from "@/lib/api/calls";
+import { deleteCall, listCalls, reassignCall, reassignCalls } from "@/lib/api/calls";
 import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
+import type { UserListItemDTO } from "@/lib/api/users";
+import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 const PAGE_SIZE = 25;
 const CALL_TYPES: CallType[] = ["PROSPECTION", "SUPPORT", "FOLLOW_UP", "OTHER"];
+
+const fullName = (u: { firstName: string | null; lastName: string | null; email?: string }) =>
+  `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || "—";
 
 function formatOccurredAt(iso: string) {
   return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
@@ -28,6 +33,8 @@ function formatOccurredAt(iso: string) {
 export default function CallsPage() {
   const { authedFetch, hasPermission } = useAuth();
   const canDelete = hasPermission("calls.delete");
+  // Réattribution : même permission que la vue de tous les appels (décision actée, pas de permission dédiée).
+  const canReassign = hasPermission("calls.viewAll");
 
   const [statuses, setStatuses] = useState<ConfigurableListItemDTO[]>([]);
   const [calls, setCalls] = useState<CallDTO[]>([]);
@@ -50,6 +57,12 @@ export default function CallsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [agents, setAgents] = useState<UserListItemDTO[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAgentId, setBulkAgentId] = useState("");
+  const [isReassigning, setIsReassigning] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
   /**
    * §P0.2 : "À appeler" ne montre QUE le statut neutre (le défaut de CALL_STATUS,
    * "À contacter" dans le seed) — pas un filtre optionnel parmi d'autres. Gap
@@ -70,6 +83,44 @@ export default function CallsPage() {
       .then(setStatuses)
       .catch(() => setError("Impossible de charger les statuts."));
   }, [authedFetch]);
+
+  useEffect(() => {
+    if (!canReassign) return;
+    authedFetch((token) => listUsers({ role: "Agent calliste", isActive: true }, token))
+      .then(setAgents)
+      .catch(() => setError("Impossible de charger la liste des agents callistes."));
+  }, [authedFetch, canReassign]);
+
+  async function handleReassign(callIds: string[], userId: string) {
+    setIsReassigning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { count } = await authedFetch((token) =>
+        callIds.length === 1 ? reassignCall(callIds[0]!, userId, token) : reassignCalls(callIds, userId, token),
+      );
+      const agent = agents.find((a) => a.id === userId);
+      setNotice(`${count} appel${count > 1 ? "s" : ""} attribué${count > 1 ? "s" : ""} à ${agent ? fullName(agent) : "l'agent"}.`);
+      setSelectedIds(new Set());
+      setBulkAgentId("");
+      fetchCalls();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible d'attribuer ces appels.");
+    } finally {
+      setIsReassigning(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allOnPageSelected = calls.length > 0 && calls.every((c) => selectedIds.has(c.id));
 
   const fetchCalls = useCallback(async () => {
     if (!neutralStatusKey) return;
@@ -181,6 +232,39 @@ export default function CallsPage() {
         <Input label="Au" type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
       </div>
 
+      {notice ? (
+        <p role="status" className="rounded-md border border-forest-600/30 bg-forest-600/10 px-3 py-2 text-sm text-forest-600">
+          {notice}
+        </p>
+      ) : null}
+
+      {canReassign && selectedIds.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-forest-600/40 bg-forest-600/5 px-4 py-3 text-sm">
+          <span className="font-medium text-ink">
+            {selectedIds.size} appel{selectedIds.size > 1 ? "s" : ""} sélectionné{selectedIds.size > 1 ? "s" : ""}
+          </span>
+          <Select
+            aria-label="Attribuer à"
+            value={bulkAgentId}
+            onChange={(e) => setBulkAgentId(e.target.value)}
+            className="w-56"
+          >
+            <option value="">Attribuer à…</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {fullName(a)}
+              </option>
+            ))}
+          </Select>
+          <Button size="sm" disabled={!bulkAgentId || isReassigning} onClick={() => handleReassign([...selectedIds], bulkAgentId)}>
+            {isReassigning ? "Attribution…" : "Attribuer"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+            Annuler la sélection
+          </Button>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
           <p className="p-6 text-sm text-status-danger">{error}</p>
@@ -192,18 +276,48 @@ export default function CallsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
+                {canReassign ? (
+                  <th className="w-10 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Tout sélectionner sur cette page"
+                      checked={allOnPageSelected}
+                      onChange={() =>
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          for (const c of calls) {
+                            if (allOnPageSelected) next.delete(c.id);
+                            else next.add(c.id);
+                          }
+                          return next;
+                        })
+                      }
+                    />
+                  </th>
+                ) : null}
                 <th className="px-4 py-2.5 font-medium">Vague</th>
                 <th className="px-4 py-2.5 font-medium">Contact</th>
                 <th className="px-4 py-2.5 font-medium">Téléphone</th>
                 <th className="px-4 py-2.5 font-medium">Type</th>
                 <th className="px-4 py-2.5 font-medium">Statut</th>
                 <th className="px-4 py-2.5 font-medium">Le</th>
+                {canReassign ? <th className="px-4 py-2.5 font-medium">Agent</th> : null}
                 <th className="px-4 py-2.5 font-medium" />
               </tr>
             </thead>
             <tbody>
               {calls.map((call) => (
                 <tr key={call.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+                  {canReassign ? (
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Sélectionner l'appel ${call.toNumber}`}
+                        checked={selectedIds.has(call.id)}
+                        onChange={() => toggleSelected(call.id)}
+                      />
+                    </td>
+                  ) : null}
                   <td className="px-4 py-2.5">
                     <WaveBadge waveNumber={call.waveNumber} />
                   </td>
@@ -216,6 +330,29 @@ export default function CallsPage() {
                     <StatusBadge label={call.status.label} color={call.status.color} />
                   </td>
                   <td className="px-4 py-2.5 text-ink-muted">{formatOccurredAt(call.occurredAt)}</td>
+                  {canReassign ? (
+                    <td className="px-4 py-2.5">
+                      <Select
+                        aria-label={`Agent de l'appel ${call.toNumber}`}
+                        value={call.userId}
+                        disabled={isReassigning}
+                        onChange={(e) => handleReassign([call.id], e.target.value)}
+                        className="w-44"
+                      >
+                        {/* Propriétaire actuel hors des agents callistes (ex. l'admin qui a importé) : affiché, pas re-sélectionnable. */}
+                        {agents.some((a) => a.id === call.userId) ? null : (
+                          <option value={call.userId} disabled>
+                            {call.user ? fullName(call.user) : "—"}
+                          </option>
+                        )}
+                        {agents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {fullName(a)}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                  ) : null}
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex justify-end gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setQualifyingCall(call)}>

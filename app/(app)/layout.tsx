@@ -21,9 +21,9 @@ export default function AppShellLayout({ children }: LayoutProps<"/">) {
   const pathname = usePathname();
 
   // §5.4 — l'Agent RDV (même signal de capacité que sa nav dédiée, jamais un nom de rôle)
-  // n'a pas d'usage de l'écran "Aujourd'hui" : accueil = son tableau de bord. Ici et non dans
-  // page.tsx pour ne pas pouvoir être contourné (pathname ignore la query string).
-  const redirectToAgentDashboard = Boolean(user) && pathname === "/" && isAgentRdvNavProfile(hasPermission);
+  // n'a pas d'usage de l'écran "Aujourd'hui" (/today) : accueil = son tableau de bord. Ici et non dans
+  // today/page.tsx pour ne pas pouvoir être contourné (pathname ignore la query string).
+  const redirectToAgentDashboard = Boolean(user) && pathname === "/today" && isAgentRdvNavProfile(hasPermission);
 
   useEffect(() => {
     if (!isLoading && !user) router.replace("/login");

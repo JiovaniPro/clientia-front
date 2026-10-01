@@ -37,7 +37,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Aujourd'hui", paletteLabel: "Aller à l'accueil", icon: Home },
+  { href: "/today", label: "Aujourd'hui", paletteLabel: "Aller à l'accueil", icon: Home },
   { href: "/calls", label: "Appels", paletteLabel: "Aller à la file d'appels", icon: Phone, permission: "calls.view" },
   {
     href: "/history",

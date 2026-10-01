@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { cn } from "@/lib/cn";
@@ -66,32 +67,43 @@ export default function PlatformProtectedLayout({ children }: LayoutProps<"/plat
 
   return (
     <div className="flex min-h-screen flex-col bg-cream">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-3">
-        <div className="flex items-center gap-6">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-wide text-terracotta-500">Console Super Admin</p>
-            <p className="font-display text-lg font-bold text-ink">CLIENTIA</p>
+      <header className="sticky top-0 z-40 border-b border-border bg-surface">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-6">
+          <div className="flex items-center gap-8">
+            <Link href="/platform" className="flex items-center gap-3" aria-label="Console Super Admin — accueil">
+              <Logo variant="mini" className="h-5" priority />
+              <span className="rounded-sm border border-terracotta-500/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-terracotta-500">
+                Super Admin
+              </span>
+            </Link>
+            <nav className="flex h-14 items-stretch gap-6">
+              {NAV_ITEMS.map((item) => {
+                const isActive =
+                  item.href === "/platform" ? pathname === "/platform" : pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "-mb-px flex items-center border-b-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "border-forest-600 text-ink"
+                        : "border-transparent text-ink-muted hover:text-ink",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
-          <nav className="flex items-center gap-4">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "text-sm font-medium hover:text-ink",
-                  pathname === item.href ? "text-ink" : "text-ink-muted",
-                )}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-ink-muted">{platformAdmin.email}</span>
-          <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(true)}>
-            Se déconnecter
-          </Button>
+          <div className="flex items-center gap-4">
+            <span className="hidden font-mono text-xs text-ink-muted sm:inline">{platformAdmin.email}</span>
+            <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(true)}>
+              Se déconnecter
+            </Button>
+          </div>
         </div>
       </header>
       <main className="flex-1">{children}</main>

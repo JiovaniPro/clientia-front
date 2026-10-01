@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { CreateClientDossierModal } from "@/components/calls/CreateClientDossierModal";
-import { CLIENT_DOSSIER_REQUIRED_CODE, changeCallStatus } from "@/lib/api/calls";
+import { asksForRecallDate, CLIENT_DOSSIER_REQUIRED_CODE, changeCallStatus } from "@/lib/api/calls";
 import type { CallDTO, ChangeCallStatusInput } from "@/lib/api/calls";
 import { ApiError } from "@/lib/api/client";
 import type { ClientDetailDTO } from "@/lib/api/clients";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface QualifyCallModalProps {
   call: CallDTO;
@@ -45,15 +46,20 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCreateDossier, setShowCreateDossier] = useState(false);
+  // §6.25 — appelé avant le rendu de remplacement ci-dessous : la bascule vers
+  // CreateClientDossierModal (409 CLIENT_DOSSIER_REQUIRED) ne passe jamais par
+  // requestClose, et ce composant reste monté pendant l'étape dossier — sa
+  // référence et la saisie en cours sont conservées pour le retour.
+  const { requestClose, confirmElement } = useUnsavedChangesGuard({ statusKey, recallDate, recallTimeSlot }, onClose);
 
   const selectedStatus = statuses.find((s) => s.key === statusKey);
-  const requiresRecallDate = Boolean(selectedStatus?.metadata?.requiresRecallDate);
+  const requiresRecallDate = asksForRecallDate(selectedStatus);
 
   async function submitStatusChange() {
     const input: ChangeCallStatusInput = {
       statusKey,
-      ...(recallDate ? { recallDate: new Date(recallDate).toISOString() } : {}),
-      ...(recallTimeSlot ? { recallTimeSlot } : {}),
+      ...(requiresRecallDate && recallDate ? { recallDate: new Date(recallDate).toISOString() } : {}),
+      ...(requiresRecallDate && recallTimeSlot ? { recallTimeSlot } : {}),
     };
     const { call: updated } = await authedFetch((token) => changeCallStatus(call.id, input, token));
     return updated;
@@ -109,7 +115,8 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
   }
 
   return (
-    <Modal title={`Qualifier — ${call.toNumber}`} onClose={onClose}>
+    <>
+    <Modal title={`Qualifier — ${call.toNumber}`} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <Select label="Statut" value={statusKey} onChange={(e) => setStatusKey(e.target.value)}>
           {statuses.map((status) => (
@@ -140,7 +147,7 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -149,5 +156,7 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

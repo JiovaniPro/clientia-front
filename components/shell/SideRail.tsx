@@ -144,7 +144,7 @@ export function SideRail() {
   );
   const activeHref = visibleNavItems
     .map((item) => item.href)
-    .filter((href) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`)))
+    .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
     .sort((a, b) => b.length - a.length)[0];
 
   return (

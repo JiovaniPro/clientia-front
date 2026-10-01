@@ -67,5 +67,6 @@ export const apiClient = {
     request<T>(path, { method: "PATCH", body, accessToken }),
   put: <T>(path: string, body?: unknown, accessToken?: string | null) =>
     request<T>(path, { method: "PUT", body, accessToken }),
-  delete: <T>(path: string, accessToken?: string | null) => request<T>(path, { method: "DELETE", accessToken }),
+  delete: <T>(path: string, accessToken?: string | null, body?: unknown) =>
+    request<T>(path, { method: "DELETE", body, accessToken }),
 };

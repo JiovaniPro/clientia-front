@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api/client";
 import type { CustomFieldDefinitionDTO, CustomFieldType } from "@/lib/api/customFields";
 import { createDefinition, SUPPORTED_ENTITY_TYPE, updateDefinition } from "@/lib/api/customFields";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface CustomFieldFormModalProps {
   /** Présent = édition, absent = création. */
@@ -53,6 +54,10 @@ export function CustomFieldFormModal({ definition, onClose, onSaved }: CustomFie
   const [order, setOrder] = useState(definition?.order ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    { key, label, fieldType, options, isRequired, section, order },
+    onClose,
+  );
 
   const isChoiceType = CHOICE_FIELD_TYPES.includes(fieldType);
 
@@ -120,7 +125,8 @@ export function CustomFieldFormModal({ definition, onClose, onSaved }: CustomFie
   }
 
   return (
-    <Modal title={isEdit ? "Modifier le champ personnalisé" : "Nouveau champ personnalisé"} onClose={onClose}>
+    <>
+    <Modal title={isEdit ? "Modifier le champ personnalisé" : "Nouveau champ personnalisé"} onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <p className="text-xs text-ink-muted">
           Applicable aux dossiers clients — aucun autre type d&apos;entité n&apos;est pris en charge pour l&apos;instant.
@@ -190,7 +196,7 @@ export function CustomFieldFormModal({ definition, onClose, onSaved }: CustomFie
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -199,5 +205,7 @@ export function CustomFieldFormModal({ definition, onClose, onSaved }: CustomFie
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

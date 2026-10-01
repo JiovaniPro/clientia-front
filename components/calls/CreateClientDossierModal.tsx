@@ -14,6 +14,7 @@ import { getConfigurableList } from "@/lib/api/configurableLists";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface CreateClientDossierModalProps {
   call: CallDTO;
@@ -37,10 +38,20 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
   const [agents, setAgents] = useState<UserListItemDTO[]>([]);
   const [firstName, setFirstName] = useState(call.firstName ?? "");
   const [lastName, setLastName] = useState(call.lastName ?? "");
+  const [email, setEmail] = useState(call.email ?? "");
   const [countryKey, setCountryKey] = useState("");
   const [agentId, setAgentId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingLoads, setPendingLoads] = useState(2);
+  // §6.25 — pays par défaut et agent unique sont pré-sélectionnés après chargement :
+  // référence prise une fois les deux listes chargées, sinon ce pré-remplissage
+  // serait vu comme une saisie. `.finally` passe après `.then`, donc après les défauts.
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    { firstName, lastName, email, countryKey, agentId },
+    onClose,
+    pendingLoads <= 0,
+  );
 
   useEffect(() => {
     authedFetch((token) => getConfigurableList("CLIENT_COUNTRY", token))
@@ -49,14 +60,16 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
         const defaultItem = items.find((i) => i.isDefault);
         if (defaultItem) setCountryKey(defaultItem.key);
       })
-      .catch(() => setError("Impossible de charger la liste des pays."));
+      .catch(() => setError("Impossible de charger la liste des pays."))
+      .finally(() => setPendingLoads((n) => n - 1));
 
     authedFetch((token) => listUsers({ role: "Agent RDV", isActive: true }, token))
       .then((items) => {
         setAgents(items);
         if (items.length === 1) setAgentId(items[0]!.id);
       })
-      .catch(() => setError("Impossible de charger la liste des agents RDV."));
+      .catch(() => setError("Impossible de charger la liste des agents RDV."))
+      .finally(() => setPendingLoads((n) => n - 1));
   }, [authedFetch]);
 
   async function handleSubmit() {
@@ -72,6 +85,7 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
             countryKey,
             firstName: firstName || undefined,
             lastName: lastName || undefined,
+            email: email.trim() || undefined,
           },
           token,
         ),
@@ -85,7 +99,8 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
   }
 
   return (
-    <Modal title="Créer le dossier client" onClose={onClose}>
+    <>
+    <Modal title="Créer le dossier client" onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Ce statut nécessite un dossier client. Créez-le, puis le statut sera enregistré automatiquement.
@@ -95,6 +110,7 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
           <Input label="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </div>
         <Input label="Téléphone" value={call.toNumber} disabled />
+        <Input label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <Select label="Pays" value={countryKey} onChange={(e) => setCountryKey(e.target.value)}>
           {countries.map((c) => (
             <option key={c.id} value={c.key}>
@@ -117,7 +133,7 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting || !countryKey || !agentId}>
@@ -126,5 +142,7 @@ export function CreateClientDossierModal({ call, onClose, onCreated }: CreateCli
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

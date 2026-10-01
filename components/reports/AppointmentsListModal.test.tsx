@@ -42,14 +42,14 @@ describe("AppointmentsListModal", () => {
 
   it("liste triée par heure, statut affiché ; état vide géré", async () => {
     listEvents.mockResolvedValue([event("b", 14), event("a", 9)]);
-    render(<AppointmentsListModal title="Rendez-vous" from="2026-09-01T00:00:00.000Z" to="2026-09-02T00:00:00.000Z" onClose={() => {}} />);
+    render(<AppointmentsListModal title="Rendez-vous" from="2026-09-01T00:00:00.000Z" to="2026-09-30T00:00:00.000Z" onClose={() => {}} />);
 
     const items = await screen.findAllByText(/^RDV /);
     expect(items.map((el) => el.textContent)).toEqual(["RDV a", "RDV b"]); // 9h avant 14h
     expect(screen.getAllByText("Confirmé")).toHaveLength(2);
 
     listEvents.mockResolvedValue([]);
-    render(<AppointmentsListModal title="Vide" from="2026-09-01T00:00:00.000Z" to="2026-09-02T00:00:00.000Z" onClose={() => {}} />);
+    render(<AppointmentsListModal title="Vide" from="2026-09-01T00:00:00.000Z" to="2026-09-30T00:00:00.000Z" onClose={() => {}} />);
     expect(await screen.findByText("Aucun rendez-vous sur cette période.")).toBeInTheDocument();
   });
 
@@ -59,7 +59,7 @@ describe("AppointmentsListModal", () => {
       <AppointmentsListModal
         title="RDV à venir"
         from="2026-09-01T00:00:00.000Z"
-        to="2026-09-02T00:00:00.000Z"
+        to="2026-09-30T00:00:00.000Z"
         statusFilter={["CONFIRME", "EN_ATTENTE_DE_CONFIRMATION"]}
         onClose={() => {}}
       />,
@@ -96,4 +96,54 @@ describe("AppointmentsListModal", () => {
   // `dangerouslyIgnoreUnhandledErrors`, est un réglage GLOBAL de vitest.config.ts (pas disponible via
   // vi.setConfig par test) — l'activer affaiblirait la détection de vrais rejets non gérés dans toute la
   // suite, décision à ne pas prendre seul pour couvrir un seul test.
+});
+
+/** Sous-lot 4 honoré/manqué — filtre de présence, badge, alignement de plage sur startAt (comme les cartes). */
+describe("AppointmentsListModal — présence", () => {
+  const HOUR = 3_600_000;
+  const now = Date.now();
+  const from = new Date(now - 10 * 24 * HOUR).toISOString();
+  const to = new Date(now + 10 * 24 * HOUR).toISOString();
+  function rdv(id: string, startOffsetHours: number, extra: Partial<CalendarEventDTO> = {}): CalendarEventDTO {
+    const start = now + startOffsetHours * HOUR;
+    return {
+      id, title: `RDV ${id}`, status: "CONFIRME", attended: null,
+      startAt: new Date(start).toISOString(), endAt: new Date(start + HOUR).toISOString(), ...extra,
+    } as unknown as CalendarEventDTO;
+  }
+  const DATA = [
+    rdv("honore", -50, { attended: true }),
+    rdv("manque", -40, { attended: false }),
+    rdv("nonmarque", -30),
+    rdv("futur", 24),
+    rdv("encours", -0.5),
+    rdv("refuse", -20, { status: "REFUSE", attended: false }),
+    rdv("cheval", -10 * 24 - 0.5, { attended: false }), // commence avant `from`, chevauche la plage
+  ];
+  const shown = () => screen.getAllByText(/^RDV /).map((el) => el.textContent);
+
+  beforeEach(() => {
+    listEvents.mockReset();
+    listEvents.mockResolvedValue(DATA);
+  });
+
+  it.each([
+    ["missed", ["RDV manque"], "Manqué"],
+    ["honored", ["RDV honore"], "Honoré"],
+    ["unmarked", ["RDV nonmarque"], "Non marqué"],
+  ] as const)("attendanceFilter=%s : seuls les RDV confirmés terminés dans cet état, total cohérent", async (filter, expected, badge) => {
+    render(<AppointmentsListModal title="Présence" from={from} to={to} attendanceFilter={filter} onClose={() => {}} />);
+    expect(await screen.findByText(`${expected.length} rendez-vous`)).toBeInTheDocument();
+    expect(shown()).toEqual(expected);
+    expect(screen.getByText(badge)).toBeInTheDocument();
+  });
+
+  it("sans filtre : badge seulement sur les RDV confirmés terminés ; RDV à cheval sur le début exclu (comme la carte)", async () => {
+    render(<AppointmentsListModal title="Tous" from={from} to={to} onClose={() => {}} />);
+    await screen.findByText("6 rendez-vous");
+    expect(shown()).not.toContain("RDV cheval");
+    expect(screen.getAllByText("Honoré")).toHaveLength(1);
+    expect(screen.getAllByText("Manqué")).toHaveLength(1); // pas sur « refuse » (non confirmé)
+    expect(screen.getAllByText("Non marqué")).toHaveLength(1); // pas sur « futur » ni « encours »
+  });
 });

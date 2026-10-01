@@ -94,6 +94,15 @@ export interface CalendarEventDTO {
   status: AppointmentStatus | null;
   callNotesSnapshot: string | null;
   agentComment: string | null;
+  /** Suivi honoré/manqué — null = pas encore marqué. */
+  attended: boolean | null;
+  attendanceMarkedAt: string | null;
+  attendanceMarkedById: string | null;
+  /** Présent sur `getEvent` (détail) et sur la réponse de `markAttendance`. */
+  attendanceMarkedBy?: { id: string; firstName: string | null; lastName: string | null } | null;
+  /** Présents sur `listEvents` (vue partagée : prénom + couleur de la personne sur la grille). */
+  organizer?: { id: string; firstName: string | null; lastName: string | null };
+  agentRdv?: { id: string; firstName: string | null; lastName: string | null } | null;
   createdAt: string;
   updatedAt: string;
   /** Présent uniquement sur une occurrence virtuelle d'un événement récurrent (pas utilisé au sous-lot A). */
@@ -118,6 +127,23 @@ export interface CalendarEventDTO {
   conflictSeverity?: ConflictSeverity | null;
   /** Présent uniquement sur `getEvent` (détail) — fusion de conflictsA/conflictsB. */
   conflicts?: EventConflictDTO[];
+  /** Présent uniquement sur `getEvent` (détail), trié du plus récent au plus ancien. */
+  statusHistory?: AppointmentStatusHistoryDTO[];
+}
+
+export interface AppointmentStatusHistoryDTO {
+  id: string;
+  oldStatus: AppointmentStatus | null;
+  newStatus: AppointmentStatus;
+  changedAt: string;
+  changedBy: { id: string; firstName: string | null; lastName: string | null };
+  comment: string | null;
+  /** Délégation de RDV — null pour un changement de statut classique. */
+  kind: "DELEGATION" | "DELEGATION_RETURN" | null;
+  fromAgentId: string | null;
+  toAgentId: string | null;
+  fromAgent: { id: string; firstName: string | null; lastName: string | null } | null;
+  toAgent: { id: string; firstName: string | null; lastName: string | null } | null;
 }
 
 export type ConflictSeverity = "INFO" | "WARNING" | "CRITICAL";
@@ -219,6 +245,11 @@ export function updateAttendeeStatus(
  */
 export function getPendingInvitationsCount(accessToken: string) {
   return apiClient.get<{ count: number }>("/calendar-events/pending-invitations-count", accessToken);
+}
+
+/** Bandeau du dashboard Agent RDV — RDV en attente dont l'appelant est l'agent RDV assigné, sans filtre de date. */
+export function getPendingAppointmentsCount(accessToken: string) {
+  return apiClient.get<{ count: number }>("/calendar-events/pending-appointments-count", accessToken);
 }
 
 export function getAgentAvailability(
@@ -323,6 +354,14 @@ export interface ChangeAppointmentStatusInput {
 
 export function changeAppointmentStatus(id: string, input: ChangeAppointmentStatusInput, accessToken: string) {
   return apiClient.patch<CalendarEventDTO>(`/calendar-events/${id}/appointment-status`, input, accessToken);
+}
+
+export function markAttendance(id: string, input: { attended: boolean }, accessToken: string) {
+  return apiClient.patch<CalendarEventDTO>(`/calendar-events/${id}/attendance`, input, accessToken);
+}
+
+export function delegateAppointment(id: string, input: { toAgentId: string; comment?: string }, accessToken: string) {
+  return apiClient.post<CalendarEventDTO>(`/calendar-events/${id}/delegate`, input, accessToken);
 }
 
 /**

@@ -31,6 +31,9 @@ function makeEvent(id: string, startHM: string, endHM: string): CalendarEventDTO
     status: null,
     callNotesSnapshot: null,
     agentComment: null,
+    attended: null,
+    attendanceMarkedAt: null,
+    attendanceMarkedById: null,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
   };

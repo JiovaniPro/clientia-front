@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
 import { CalendarGrid } from "@/components/calendar/CalendarGrid";
 import { EventPanel } from "@/components/calendar/EventPanel";
 import type { CalendarDTO, CalendarEventDTO, EventCategoryDTO } from "@/lib/api/calendar";
@@ -15,6 +14,7 @@ import { getClient } from "@/lib/api/clients";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { addDays, formatDayLabel, formatWeekRangeLabel, startOfWeek } from "@/lib/calendar/dateUtils";
+import { buildPersonColors } from "@/lib/calendar/personColors";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 type ViewMode = "week" | "day";
@@ -27,6 +27,11 @@ type PanelState =
 function personLabel(p: { firstName: string | null; lastName: string | null } | null | undefined, fallback = "—") {
   if (!p) return fallback;
   return `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || fallback;
+}
+
+/** Personne portée par un bloc : l'agent RDV assigné, sinon l'organisateur (jamais pour un RDV non assigné). */
+function eventPerson(event: CalendarEventDTO) {
+  return event.agentRdv ?? (event.type === "APPOINTMENT" ? null : event.organizer) ?? null;
 }
 
 /**
@@ -64,12 +69,8 @@ function CalendarProContent() {
   const [view, setView] = useState<ViewMode>("week");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [myCalendar, setMyCalendar] = useState<CalendarDTO | null>(null);
-  /** §5.13 — un calendrier à la fois, jamais superposés (décision explicite) :
-   * "" = le mien ; sinon l'id d'un autre agent, résolu vers son calendrier via
-   * `allCalendars` ci-dessous. */
-  const [selectedAgentId, setSelectedAgentId] = useState("");
-  const [allCalendars, setAllCalendars] = useState<CalendarDTO[]>([]);
-  const [agents, setAgents] = useState<UserListItemDTO[]>([]);
+  /** Annuaire complet (actifs ou non) : sert aux couleurs stables et à la légende de la vue partagée. */
+  const [users, setUsers] = useState<UserListItemDTO[]>([]);
   const [events, setEvents] = useState<CalendarEventDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -169,30 +170,43 @@ function CalendarProContent() {
       .catch(() => setError("Impossible d'initialiser le calendrier."));
   }, [ensureCalendar]);
 
-  useEffect(() => {
-    // §5.13 — la liste des calendriers/agents (pour le sélecteur) n'a de sens
-    // qu'avec calendar.viewAll ; sans elle, on ne montre jamais que le sien.
-    if (!canViewAll) return;
-    authedFetch((token) => listCalendars(token))
-      .then(setAllCalendars)
-      .catch(() => {});
-    authedFetch((token) => listUsers({}, token))
-      .then(setAgents)
-      .catch(() => {});
-  }, [canViewAll, authedFetch]);
-
-  const isViewingOther = selectedAgentId !== "" && selectedAgentId !== user?.id;
   /**
-   * Le calendrier d'un AUTRE agent, résolu seulement quand on le regarde
-   * explicitement — jamais appliqué par défaut sur "soi-même" : sans ce filtre,
-   * la portée par défaut d'un utilisateur normal (`eventAccessFilter` côté
-   * backend) inclut déjà les événements où il est invité ou agent RDV assigné sur
-   * un calendrier qui n'est PAS le sien. Forcer `calendarId: myCalendar.id` par
-   * défaut ferait disparaître ces événements-là — régression évitée en ne
-   * touchant JAMAIS au comportement par défaut, seulement au cas explicite "je
-   * regarde le calendrier de quelqu'un d'autre".
+   * Vue partagée (décision actée, remplace le sélecteur "un agent à la fois" du §5.13) :
+   * tous les agendas superposés, chaque bloc à la couleur de son agent RDV (sinon de
+   * son organisateur). La portée de lecture est décidée côté backend (eventAccessFilter :
+   * tout le non-privé avec calendar.view) ; l'écriture reste limitée à ses propres
+   * événements — voir canDragEvent et EventPanel (readOnly).
    */
-  const otherCalendar = isViewingOther ? (allCalendars.find((c) => c.userId === selectedAgentId) ?? null) : null;
+  useEffect(() => {
+    authedFetch((token) => listUsers({}, token))
+      .then(setUsers)
+      .catch(() => {
+        // Non bloquant : sans annuaire, la grille retombe sur les couleurs de type.
+      });
+  }, [authedFetch]);
+
+  const personColors = useMemo(() => buildPersonColors(users), [users]);
+  const personOfEvent = useCallback(
+    (event: CalendarEventDTO) => {
+      const person = eventPerson(event);
+      const color = person ? personColors.get(person.id) : undefined;
+      if (!person || !color) return undefined;
+      return { name: person.firstName ?? personLabel(person), color };
+    },
+    [personColors],
+  );
+  const canDragEvent = useCallback(
+    (event: CalendarEventDTO) =>
+      canUpdate && (canViewAll || event.organizerId === user?.id || event.agentRdvId === user?.id),
+    [canUpdate, canViewAll, user?.id],
+  );
+  /** Légende : tous les agents RDV actifs + toute autre personne présente sur la période affichée. */
+  const legend = useMemo(() => {
+    const inView = new Set(events.map((e) => eventPerson(e)?.id));
+    return users
+      .filter((u) => personColors.has(u.id) && ((u.isActive && u.role.name === "Agent RDV") || inView.has(u.id)))
+      .map((u) => ({ id: u.id, name: personLabel(u, u.email), color: personColors.get(u.id)! }));
+  }, [users, events, personColors]);
 
   const fetchEvents = useCallback(async () => {
     setIsLoading(true);
@@ -200,22 +214,7 @@ function CalendarProContent() {
     try {
       const from = days[0]!;
       const to = addDays(days[days.length - 1]!, 1);
-      if (isViewingOther && !otherCalendar) {
-        // L'agent choisi n'a jamais ouvert son propre calendrier (aucun
-        // auto-provisionné à la création d'un compte) — rien à charger, pas une erreur.
-        setEvents([]);
-        return;
-      }
-      const items = await authedFetch((token) =>
-        listEvents(
-          {
-            from: from.toISOString(),
-            to: to.toISOString(),
-            ...(otherCalendar ? { calendarId: otherCalendar.id } : {}),
-          },
-          token,
-        ),
-      );
+      const items = await authedFetch((token) => listEvents({ from: from.toISOString(), to: to.toISOString() }, token));
       setEvents(items);
     } catch {
       setError("Impossible de charger les événements.");
@@ -224,7 +223,7 @@ function CalendarProContent() {
     }
     // days est recalculé à chaque rendu depuis anchorDate/view — on ne dépend que de ces deux-là.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authedFetch, anchorDate, view, isViewingOther, otherCalendar]);
+  }, [authedFetch, anchorDate, view]);
 
   useEffect(() => {
     fetchEvents();
@@ -253,9 +252,8 @@ function CalendarProContent() {
   }
 
   function handleSlotClick(start: Date) {
-    // §5.13 — lecture seule sur le calendrier d'un autre agent : superviser n'est
-    // pas créer un rendez-vous au nom de quelqu'un d'autre depuis cet écran.
-    if (!canCreate || !myCalendar || isViewingOther) return;
+    // La création se fait toujours dans son propre calendrier, même en vue partagée.
+    if (!canCreate || !myCalendar) return;
     const prefill: EventPrefill | undefined = pendingClient
       ? {
           title: `RDV — ${personLabel(pendingClient, pendingClient.phoneNumber)}`,
@@ -329,31 +327,7 @@ function CalendarProContent() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.14 — sous-lots A + B</p>
-          <h1 className="font-display text-2xl font-bold text-ink">
-            {isViewingOther
-              ? (() => {
-                  const agent = agents.find((a) => a.id === selectedAgentId);
-                  return `Calendrier — ${personLabel(agent, agent?.email ?? "—")}`;
-                })()
-              : "Calendrier"}
-          </h1>
-          {canViewAll && agents.length > 0 ? (
-            <Select
-              value={selectedAgentId}
-              onChange={(e) => setSelectedAgentId(e.target.value)}
-              className="mt-1.5 w-56"
-            >
-              <option value="">Moi-même</option>
-              {agents
-                .filter((a) => a.id !== user?.id)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {personLabel(a, a.email)}
-                    {!a.isActive ? " (inactif)" : ""}
-                  </option>
-                ))}
-            </Select>
-          ) : null}
+          <h1 className="font-display text-2xl font-bold text-ink">Calendrier partagé</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={goToday}>
@@ -418,21 +392,21 @@ function CalendarProContent() {
           {dropError} — l'événement est revenu à sa position d'origine.
         </p>
       ) : null}
-      {!myCalendar && !error && !isViewingOther ? (
+      {!myCalendar && !error ? (
         <p className="rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-sm text-ink-muted">
           Aucun calendrier personnel et vous n'avez pas la permission d'en créer un — vous pouvez voir les événements
           partagés mais pas en créer de nouveaux.
         </p>
       ) : null}
-      {isViewingOther && !otherCalendar && !isLoading ? (
-        <p className="rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-sm text-ink-muted">
-          Cet agent n'a pas encore de calendrier personnel (aucun événement à afficher).
-        </p>
-      ) : null}
-      {isViewingOther && otherCalendar ? (
-        <p className="rounded-md border border-border bg-surface-subtle p-3 text-sm text-ink-muted">
-          Lecture seule : la création d'événement depuis cet écran reste réservée à votre propre calendrier.
-        </p>
+      {legend.length > 0 ? (
+        <ul aria-label="Légende des agendas" className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-ink">
+          {legend.map((p) => (
+            <li key={p.id} className="flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm border border-border" style={{ backgroundColor: p.color }} aria-hidden />
+              {p.name}
+            </li>
+          ))}
+        </ul>
       ) : null}
       {isLoading ? <p className="text-sm text-ink-muted">Chargement…</p> : null}
 
@@ -441,14 +415,18 @@ function CalendarProContent() {
         events={events}
         onSlotClick={handleSlotClick}
         onEventClick={handleEventClick}
-        canDrag={canUpdate && !isViewingOther}
+        canDrag={canDragEvent}
         onEventDrop={handleEventDrop}
         pendingEventId={pendingEventId}
         categoriesById={categoriesById}
+        personOf={personOfEvent}
       />
 
       {panel ? (
         <EventPanel
+          // Correctif distinct de la garde : sans key, ouvrir un autre événement (ex. clic
+          // sur une notification de rappel) réutilisait l'instance et gardait l'ancienne saisie.
+          key={panel.mode === "edit" ? panel.event.id : "new"}
           event={panel.mode === "edit" ? panel.event : undefined}
           initialStart={panel.mode === "create" ? panel.start : undefined}
           prefill={panel.mode === "create" ? panel.prefill : undefined}

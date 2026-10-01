@@ -7,10 +7,10 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSea
 vi.mock("@/lib/auth/AuthContext", () => ({ useAuth: () => ({ login: vi.fn() }) }));
 
 describe("/login — mot de passe oublié", () => {
-  it("affiche un lien « Mot de passe oublié ? » vers /forgot-password, sans retirer le lien de création d'organisation", () => {
+  it("affiche un lien « Mot de passe oublié ? » vers /forgot-password, et plus aucun lien d'auto-inscription (sous-lot 2)", () => {
     render(<LoginPage />);
     expect(screen.getByRole("link", { name: "Mot de passe oublié ?" })).toHaveAttribute("href", "/forgot-password");
-    expect(screen.getByRole("link", { name: "Créer une organisation" })).toHaveAttribute("href", "/register-organization");
+    expect(screen.queryByRole("link", { name: "Créer une organisation" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Se connecter" })).toBeInTheDocument();
   });
 });

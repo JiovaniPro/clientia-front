@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AppointmentsListModal } from "@/components/reports/AppointmentsListModal";
+import { AppointmentsListModal, type AttendanceState } from "@/components/reports/AppointmentsListModal";
 import { ClientsListModal } from "@/components/reports/ClientsListModal";
 import { APPOINTMENT_STATUS_LABELS, ChartCard, StatCard } from "@/components/reports/ReportsOverview";
 import { getConfigurableList } from "@/lib/api/configurableLists";
@@ -11,11 +11,18 @@ import type { AppointmentsReportDTO } from "@/lib/api/reports";
 import { getAppointmentsReport, getSignedContractsCount } from "@/lib/api/reports";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { AppointmentStatus } from "@/lib/api/calendar";
+import { getPendingAppointmentsCount } from "@/lib/api/calendar";
 
 const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = ["EN_ATTENTE_DE_CONFIRMATION", "CONFIRME"];
 const REFUSED_STATUSES: AppointmentStatus[] = ["REFUSE"];
 
-type DrillDown = { title: string; from: string; to: string; statusFilter?: AppointmentStatus[] };
+type DrillDown = {
+  title: string;
+  from: string;
+  to: string;
+  statusFilter?: AppointmentStatus[];
+  attendanceFilter?: AttendanceState;
+};
 
 function startOfMonth() {
   const now = new Date();
@@ -28,17 +35,16 @@ function countByStatus(report: AppointmentsReportDTO | null, statuses: string[])
 }
 
 /**
- * §5.27 "Tableau de bord" — 3 des 4 KPI du brief original (Contrats signés, RDV à
- * venir, Refusés) + le graphique 30 jours. "RDV manqués" et "Refusés/replanifiés"
- * (la partie "replanifiés") sont volontairement absents : aucune donnée ne permet
- * de les calculer aujourd'hui (ni statut "manqué"/"honoré", ni notion de
- * "replanifié" — voir l'audit §5.25-§5.28), chantier séparé à cadrer. Pas de
- * bandeau de délégation non plus, même raison — reporté.
+ * §5.27 "Tableau de bord" — les 4 KPI du brief original (Contrats signés, RDV à
+ * venir, Refusés, RDV manqués — ce dernier via le suivi honoré/manqué, sous-lot 4)
+ * + le graphique 30 jours. La partie "replanifiés" de "Refusés/replanifiés" reste
+ * absente : aucune notion de "replanifié" dans les données (voir l'audit §5.25-§5.28).
  */
 export default function AgentRdvDashboardPage() {
-  const { authedFetch, user } = useAuth();
+  const { authedFetch, user, hasPermission } = useAuth();
 
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const [signedDrillDown, setSignedDrillDown] = useState<{ finalStatusKey: string } | null>(null);
   const [signedCount, setSignedCount] = useState<number | null>(null);
   const [thisMonthAppointments, setThisMonthAppointments] = useState<AppointmentsReportDTO | null>(null);
@@ -60,6 +66,12 @@ export default function AgentRdvDashboardPage() {
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    // Bandeau "en attente de ma confirmation" : chargé à part, un échec ne doit pas faire tomber les KPI.
+    if (hasPermission("calendar.manageAppointments")) {
+      authedFetch((token) => getPendingAppointmentsCount(token))
+        .then((res) => setPendingCount(res.count))
+        .catch(() => setPendingCount(0));
+    }
     try {
       const [signed, monthAppointments, upcoming, last30] = await Promise.all([
         authedFetch((token) => getSignedContractsCount(undefined, token)),
@@ -76,7 +88,7 @@ export default function AgentRdvDashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [authedFetch, ranges]);
+  }, [authedFetch, hasPermission, ranges]);
 
   useEffect(() => {
     fetchAll();
@@ -111,6 +123,19 @@ export default function AgentRdvDashboardPage() {
         </Link>
       </header>
 
+      {/* Lien vers /calendar-pro (pas de modale) : l'agent doit pouvoir confirmer/refuser directement. */}
+      {pendingCount > 0 ? (
+        <Link
+          href="/calendar-pro"
+          className="flex items-center justify-between rounded-md border border-terracotta-500/40 bg-terracotta-500/10 px-4 py-3 text-sm text-ink hover:bg-terracotta-500/15"
+        >
+          <span>
+            <strong className="font-semibold">{pendingCount}</strong> rendez-vous en attente de votre confirmation
+          </span>
+          <span className="font-medium text-forest-600">Traiter →</span>
+        </Link>
+      ) : null}
+
       {error ? (
         <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
           {error}
@@ -121,7 +146,7 @@ export default function AgentRdvDashboardPage() {
         <p className="text-sm text-ink-muted">Chargement…</p>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="Contrats signés (ce mois)"
               value={signedCount ?? 0}
@@ -151,6 +176,18 @@ export default function AgentRdvDashboardPage() {
                 })
               }
             />
+            <StatCard
+              label="RDV manqués (ce mois)"
+              value={thisMonthAppointments?.attendance.missed ?? 0}
+              onClick={() =>
+                setDrillDown({
+                  title: "RDV manqués (ce mois)",
+                  from: ranges.monthStart.toISOString(),
+                  to: ranges.now.toISOString(),
+                  attendanceFilter: "missed",
+                })
+              }
+            />
           </div>
 
           <ChartCard title="Répartition des statuts de RDV (30 derniers jours)">
@@ -176,6 +213,7 @@ export default function AgentRdvDashboardPage() {
           to={drillDown.to}
           agentRdvId={user?.id}
           statusFilter={drillDown.statusFilter}
+          attendanceFilter={drillDown.attendanceFilter}
           onClose={() => setDrillDown(null)}
         />
       ) : null}

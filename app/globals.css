@@ -101,3 +101,57 @@
 body {
   font-family: var(--font-sans);
 }
+
+/*
+ * Landing (§5.1) — défilement doux des ancres internes (« Demander un devis » → #contact),
+ * limité à la landing (marqueur data-landing) pour ne pas changer le reste de l'app.
+ */
+html:has([data-landing]) {
+  scroll-behavior: smooth;
+}
+
+/*
+ * Landing — entrée du héros : léger glissé + fondu, échelonné via --delay. `both` affiche
+ * l'état final dès la fin : si l'animation ne tourne pas (onglet masqué, capture sans
+ * rendu), le contenu n'est jamais bloqué invisible au-delà du délai. Pas de rebond (§3.7).
+ */
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.landing-rise {
+  animation: landing-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) var(--delay, 0ms) both;
+}
+
+/* Landing — onde sonore de la carte « Appel en cours » : barres qui respirent (transform seul). */
+@keyframes landing-wave {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.landing-wave {
+  animation: landing-wave 1100ms ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has([data-landing]) {
+    scroll-behavior: auto;
+  }
+  .landing-rise,
+  .landing-wave {
+    animation: none;
+  }
+}

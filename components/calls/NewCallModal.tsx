@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { createCall } from "@/lib/api/calls";
+import { asksForRecallDate, createCall } from "@/lib/api/calls";
 import type { CallDTO, CallDirection, CallType } from "@/lib/api/calls";
 import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface NewCallModalProps {
   statuses: ConfigurableListItemDTO[];
@@ -36,9 +37,13 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
   const [recallTimeSlot, setRecallTimeSlot] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    { direction, type, statusKey, fromNumber, toNumber, firstName, lastName, notes, recallDate, recallTimeSlot },
+    onClose,
+  );
 
   const selectedStatus = statuses.find((s) => s.key === statusKey);
-  const requiresRecallDate = Boolean(selectedStatus?.metadata?.requiresRecallDate);
+  const requiresRecallDate = asksForRecallDate(selectedStatus);
 
   async function handleSubmit() {
     setError(null);
@@ -69,8 +74,8 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
             firstName: firstName || undefined,
             lastName: lastName || undefined,
             notes: notes || undefined,
-            ...(recallDate ? { recallDate: new Date(recallDate).toISOString() } : {}),
-            ...(recallTimeSlot ? { recallTimeSlot } : {}),
+            ...(requiresRecallDate && recallDate ? { recallDate: new Date(recallDate).toISOString() } : {}),
+            ...(requiresRecallDate && recallTimeSlot ? { recallTimeSlot } : {}),
           },
           token,
         ),
@@ -84,7 +89,8 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
   }
 
   return (
-    <Modal title="Nouvel appel" onClose={onClose}>
+    <>
+    <Modal title="Nouvel appel" onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Select label="Sens" value={direction} onChange={(e) => setDirection(e.target.value as CallDirection)}>
@@ -141,7 +147,7 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -150,5 +156,7 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

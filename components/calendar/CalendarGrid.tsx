@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { addDays, formatDayHeader, isSameDay } from "@/lib/calendar/dateUtils";
 import { layoutDayEvents } from "@/lib/calendar/layout";
 import type { CalendarEventDTO, EventCategoryDTO, EventType } from "@/lib/api/calendar";
+import { PASTEL_TEXT_COLOR } from "@/lib/calendar/personColors";
 
 /**
  * Fenêtre horaire fixe — pas de défilement pleine journée ni de zoom (hors
@@ -20,7 +21,8 @@ const GRID_HEIGHT = (RANGE_END_HOUR - RANGE_START_HOUR) * HOUR_HEIGHT;
 /** Distance de pointeur en dessous de laquelle un geste est traité comme un clic, pas un glisser. */
 const DRAG_THRESHOLD_PX = 4;
 
-const TYPE_COLOR: Record<EventType, string> = {
+/** Exporté — réutilisé par la mini-carte « Aujourd'hui » de la landing (mêmes couleurs que la grille). */
+export const TYPE_COLOR: Record<EventType, string> = {
   APPOINTMENT: "var(--color-terracotta-500)",
   MEETING: "var(--color-status-info)",
   PERSONAL: "var(--color-status-neutral)",
@@ -97,8 +99,11 @@ interface CalendarGridProps {
   events: CalendarEventDTO[];
   onSlotClick: (start: Date) => void;
   onEventClick: (event: CalendarEventDTO) => void;
-  /** `calendar.update` — sans ça, ni glisser-déposer ni redimensionnement ne s'activent. */
-  canDrag: boolean;
+  /**
+   * Par événement (vue partagée) : `calendar.update` ET droit d'écrire CET événement
+   * (organisateur, agent RDV assigné ou calendar.viewAll) — sinon ni glisser ni redimensionner.
+   */
+  canDrag: (event: CalendarEventDTO) => boolean;
   /**
    * Appelé une fois au relâchement (pas à chaque pixel de mouvement) avec les
    * nouvelles dates proposées. Le composant affiche déjà l'aperçu optimiste
@@ -112,6 +117,18 @@ interface CalendarGridProps {
   pendingEventId?: string | null;
   /** Sous-lot C1 — indexées par id, pour afficher le liseré de couleur sans requête par événement. */
   categoriesById?: Record<string, EventCategoryDTO>;
+  /** Vue partagée : personne affichée sur le bloc (agent RDV, sinon organisateur) et sa couleur pastel. */
+  personOf?: (event: CalendarEventDTO) => { name: string; color: string } | undefined;
+}
+
+/** "Maintenant", rafraîchi chaque minute pour que la zone passée avance sans rechargement. */
+function useNow(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
 }
 
 export function CalendarGrid({
@@ -123,7 +140,9 @@ export function CalendarGrid({
   onEventDrop,
   pendingEventId,
   categoriesById = {},
+  personOf,
 }: CalendarGridProps) {
+  const now = useNow();
   const hours = Array.from({ length: RANGE_END_HOUR - RANGE_START_HOUR }, (_, i) => RANGE_START_HOUR + i);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dayRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -148,7 +167,7 @@ export function CalendarGrid({
   }
 
   function startDrag(event: CalendarEventDTO, mode: DragMode, e: React.PointerEvent) {
-    if (!canDrag || pendingEventId) return;
+    if (!canDrag(event) || pendingEventId) return;
     e.preventDefault();
     e.stopPropagation();
     const originStart = new Date(event.startAt);
@@ -246,6 +265,8 @@ export function CalendarGrid({
             draggingEventId={drag?.eventId ?? null}
             pendingEventId={pendingEventId ?? null}
             categoriesById={categoriesById}
+            personOf={personOf}
+            now={now}
             onStartDrag={startDrag}
             consumeSuppressClick={() => {
               const suppress = suppressNextClickRef.current;
@@ -272,6 +293,8 @@ function DayColumn({
   draggingEventId,
   pendingEventId,
   categoriesById,
+  personOf,
+  now,
   onStartDrag,
   consumeSuppressClick,
   columnRef,
@@ -281,10 +304,12 @@ function DayColumn({
   hours: number[];
   onSlotClick: (start: Date) => void;
   onEventClick: (event: CalendarEventDTO) => void;
-  canDrag: boolean;
+  canDrag: (event: CalendarEventDTO) => boolean;
   draggingEventId: string | null;
   pendingEventId: string | null;
   categoriesById: Record<string, EventCategoryDTO>;
+  personOf?: (event: CalendarEventDTO) => { name: string; color: string } | undefined;
+  now: Date;
   onStartDrag: (event: CalendarEventDTO, mode: DragMode, e: React.PointerEvent) => void;
   consumeSuppressClick: () => boolean;
   columnRef: (el: HTMLDivElement | null) => void;
@@ -292,7 +317,12 @@ function DayColumn({
   const localRef = useRef<HTMLDivElement>(null);
   const dayEvents = events.filter((e) => isSameDay(new Date(e.startAt), day));
   const positioned = layoutDayEvents(dayEvents);
-  const today = isSameDay(day, new Date());
+  const today = isSameDay(day, now);
+  const dayStart = new Date(day);
+  dayStart.setHours(RANGE_START_HOUR, 0, 0, 0);
+  // Zone passée (hachurée, non cliquable) : toute la colonne pour un jour passé, jusqu'à
+  // "maintenant" pour aujourd'hui, rien pour un jour futur. Même règle que assertNotInPast.
+  const pastHeight = Math.min(GRID_HEIGHT, Math.max(0, ((now.getTime() - dayStart.getTime()) / 3_600_000) * HOUR_HEIGHT));
 
   function handleColumnClick(clientY: number) {
     const rect = localRef.current?.getBoundingClientRect();
@@ -303,6 +333,8 @@ function DayColumn({
     const start = new Date(day);
     start.setHours(RANGE_START_HOUR, 0, 0, 0);
     start.setMinutes(start.getMinutes() + snapped);
+    // L'arrondi à la demi-heure peut retomber avant "maintenant" juste sous la limite.
+    if (start < now) return;
     onSlotClick(start);
   }
 
@@ -335,6 +367,22 @@ function DayColumn({
             style={{ top: i * HOUR_HEIGHT }}
           />
         ))}
+        {pastHeight > 0 ? (
+          <div
+            data-testid="past-zone"
+            title="Créneau passé — création impossible"
+            className="absolute inset-x-0 top-0 cursor-not-allowed"
+            style={{
+              height: pastHeight,
+              backgroundImage:
+                "repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-ink-faint) 12%, transparent) 0 6px, color-mix(in srgb, var(--color-ink-faint) 30%, transparent) 6px 8px)",
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              consumeSuppressClick();
+            }}
+          />
+        ) : null}
         {positioned.map(({ event, col, totalCols }) => {
           const { top, height } = eventPixelStyle(event.startAt, event.endAt);
           const isDragging = draggingEventId === event.id;
@@ -342,6 +390,9 @@ function DayColumn({
           const widthPct = 100 / totalCols;
           const leftPct = col * widthPct;
           const category = event.categoryId ? categoriesById[event.categoryId] : undefined;
+          const person = personOf?.(event);
+          const background = person?.color ?? TYPE_COLOR[event.type];
+          const draggable = canDrag(event);
           return (
             <div
               key={event.id}
@@ -368,19 +419,20 @@ function DayColumn({
                 }}
                 className={cn(
                   "relative h-full w-full overflow-hidden rounded-md px-1.5 py-1 text-left text-xs text-white shadow-flat hover:brightness-95",
-                  canDrag && !isPending && "cursor-grab active:cursor-grabbing",
+                  draggable && !isPending && "cursor-grab active:cursor-grabbing",
                   isDragging && "opacity-80 ring-2 ring-white",
                   isPending && "opacity-50",
                 )}
                 style={{
-                  backgroundColor: TYPE_COLOR[event.type],
+                  backgroundColor: background,
+                  ...(person ? { color: PASTEL_TEXT_COLOR } : {}),
                   // Liseré de catégorie (sous-lot C1) + anneau de conflit (sous-lot C4),
                   // composés dans le même box-shadow — le fond reste piloté par le type.
                   boxShadow:
                     [
                       category ? `inset 3px 0 0 ${category.borderColor}` : null,
                       event.conflictSeverity
-                        ? `0 0 0 2px ${TYPE_COLOR[event.type]}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
+                        ? `0 0 0 2px ${background}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
                         : null,
                     ]
                       .filter(Boolean)
@@ -388,6 +440,8 @@ function DayColumn({
                 }}
                 title={[
                   event.title,
+                  person?.name,
+                  TYPE_LABEL[event.type],
                   category ? `Catégorie : ${category.name}` : null,
                   event.hasPendingInvitation ? "Invitation en attente de votre réponse" : null,
                   event.conflictSeverity ? CONFLICT_SEVERITY_LABEL[event.conflictSeverity] : null,
@@ -396,8 +450,19 @@ function DayColumn({
                   .join(" — ")}
                 disabled={isPending}
               >
-                <p className="truncate font-medium">{event.title}</p>
-                {height > 32 ? (
+                <p className="flex items-center gap-1 font-medium">
+                  {/* Vue partagée : le fond porte la personne, la pastille garde le type. */}
+                  {person ? (
+                    <span
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: TYPE_COLOR[event.type] }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  <span className="truncate">{event.title}</span>
+                </p>
+                {person ? <p className="truncate font-semibold">{person.name}</p> : null}
+                {height > (person ? 44 : 32) ? (
                   <p className="truncate opacity-90">
                     {new Date(event.startAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}–
                     {new Date(event.endAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -410,7 +475,7 @@ function DayColumn({
                   aria-hidden
                 />
               ) : null}
-              {canDrag && !isPending ? (
+              {draggable && !isPending ? (
                 <>
                   <div
                     className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"

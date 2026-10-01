@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { PlatformOrganizationDetailDTO } from "@/lib/api/platformOrganizations";
 import { createOrganization } from "@/lib/api/platformOrganizations";
 import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface OrganizationFormModalProps {
   onClose: () => void;
@@ -17,7 +18,8 @@ interface OrganizationFormModalProps {
 /**
  * Création uniquement — même provisioning que l'auto-inscription publique (voir
  * organizations/service.ts::createOrganization), juste déclenchée par un Super
- * Admin plutôt qu'un visiteur. Pas d'édition ici : §5.24 (déjà livré) couvre déjà
+ * Admin plutôt qu'un visiteur. Pas de mot de passe : le premier admin reçoit un
+ * e-mail d'invitation et définit le sien, comme un utilisateur ajouté via /admin/users. Pas d'édition ici : §5.24 (déjà livré) couvre déjà
  * la modification du nom/logo/couleur, depuis l'écran organisation de l'organisation
  * elle-même — pas de deuxième porte d'entrée qui le dupliquerait.
  */
@@ -27,15 +29,18 @@ export function OrganizationFormModal({ onClose, onSaved }: OrganizationFormModa
   const [organizationName, setOrganizationName] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
   const [adminFirstName, setAdminFirstName] = useState("");
   const [adminLastName, setAdminLastName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard(
+    { organizationName, organizationSlug, adminEmail, adminFirstName, adminLastName },
+    onClose,
+  );
 
   async function handleSubmit() {
     setError(null);
-    if (!organizationName.trim() || !organizationSlug.trim() || !adminEmail.trim() || !adminPassword.trim()) {
+    if (!organizationName.trim() || !organizationSlug.trim() || !adminEmail.trim()) {
       setError("Tous les champs marqués requis doivent être remplis.");
       return;
     }
@@ -47,7 +52,6 @@ export function OrganizationFormModal({ onClose, onSaved }: OrganizationFormModa
             organizationName,
             organizationSlug,
             adminEmail,
-            adminPassword,
             adminFirstName: adminFirstName || undefined,
             adminLastName: adminLastName || undefined,
           },
@@ -63,7 +67,8 @@ export function OrganizationFormModal({ onClose, onSaved }: OrganizationFormModa
   }
 
   return (
-    <Modal title="Nouvelle organisation" onClose={onClose}>
+    <>
+    <Modal title="Nouvelle organisation" onClose={requestClose} closeDisabled={isSubmitting}>
       <div className="space-y-4">
         <Input
           label="Nom de l'organisation"
@@ -89,19 +94,15 @@ export function OrganizationFormModal({ onClose, onSaved }: OrganizationFormModa
           onChange={(e) => setAdminEmail(e.target.value)}
           required
         />
-        <Input
-          label="Mot de passe initial"
-          type="password"
-          value={adminPassword}
-          onChange={(e) => setAdminPassword(e.target.value)}
-          minLength={8}
-          required
-        />
+        <p className="text-sm text-ink-muted">
+          Un e-mail d'invitation sera envoyé à cette adresse : l&apos;administrateur y définira lui-même son mot de
+          passe (lien valable 24 heures).
+        </p>
 
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -110,5 +111,7 @@ export function OrganizationFormModal({ onClose, onSaved }: OrganizationFormModa
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

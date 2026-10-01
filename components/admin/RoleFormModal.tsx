@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { PermissionDTO, RoleDetailDTO } from "@/lib/api/roles";
 import { createRole, updateRole } from "@/lib/api/roles";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 
 interface RoleFormModalProps {
   /** Présent = édition, absent = création. */
@@ -39,6 +40,7 @@ export function RoleFormModal({ role, permissionsCatalog, onClose, onSaved }: Ro
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard({ name, description, color, selectedKeys }, onClose);
 
   const groups = groupByModule(permissionsCatalog);
 
@@ -90,7 +92,13 @@ export function RoleFormModal({ role, permissionsCatalog, onClose, onSaved }: Ro
   }
 
   return (
-    <Modal title={isEdit ? "Modifier le rôle" : "Nouveau rôle"} onClose={onClose} widthClassName="max-w-2xl">
+    <>
+    <Modal
+      title={isEdit ? "Modifier le rôle" : "Nouveau rôle"}
+      onClose={requestClose}
+      widthClassName="max-w-2xl"
+      closeDisabled={isSubmitting}
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
           <Input label="Nom" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -147,7 +155,7 @@ export function RoleFormModal({ role, permissionsCatalog, onClose, onSaved }: Ro
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSubmitting}>
             Annuler
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -156,5 +164,7 @@ export function RoleFormModal({ role, permissionsCatalog, onClose, onSaved }: Ro
         </div>
       </div>
     </Modal>
+    {confirmElement}
+    </>
   );
 }

@@ -2,6 +2,10 @@ import { apiClient, buildQuery } from "@/lib/api/client";
 
 export interface CallsReportDTO {
   total: number;
+  /** Appels de la période dont le statut n'est plus le statut par défaut. */
+  qualified: number;
+  /** 24 entrées (0–23 h) : appels qualifiés de la période, à l'heure de leur qualification. */
+  byHour: { hour: number; count: number }[];
   byStatus: { statusId: string; label: string; count: number }[];
   byType: { type: string; count: number }[];
   byDirection: { direction: "INBOUND" | "OUTBOUND"; count: number }[];
@@ -18,6 +22,8 @@ export interface ClientsReportDTO {
 export interface AppointmentsReportDTO {
   total: number;
   byStatus: { status: string; count: number }[];
+  /** RDV confirmés et terminés uniquement (voir countAttendance côté backend). */
+  attendance: { honored: number; missed: number; unmarked: number };
 }
 
 export interface ReportsRangeQuery {
@@ -58,6 +64,9 @@ export interface AppointmentsHistoryPeriodDTO {
   totalAppointments: number;
   confirmedCount: number;
   refusedCount: number;
+  honoredCount: number;
+  missedCount: number;
+  unmarkedCount: number;
   signedContracts: number;
   conversionRate: number;
 }

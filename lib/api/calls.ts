@@ -161,3 +161,20 @@ export async function importCalls(file: File, accessToken: string): Promise<Impo
   }
   return data as ImportCallsResponse;
 }
+
+/** Réattribution par un admin (calls.viewAll) : propriétaire changé, vague remise à null, rappels liés suivis. */
+export function reassignCall(id: string, userId: string, accessToken: string) {
+  return apiClient.patch<{ count: number; userId: string }>(`/calls/${id}/owner`, { userId }, accessToken);
+}
+
+export function reassignCalls(callIds: string[], userId: string, accessToken: string) {
+  return apiClient.patch<{ count: number; userId: string }>("/calls/owner", { callIds, userId }, accessToken);
+}
+
+/**
+ * Le formulaire demande une date de rappel pour les statuts à date de rappel, SAUF "Ne répond pas" : son rappel
+ * automatique se calcule seul (+7 jours) — miroir de backend modules/calls/autoReminder.ts::asksForRecallDate.
+ */
+export function asksForRecallDate(status: { key: string; metadata?: Record<string, unknown> | null } | undefined) {
+  return Boolean(status?.metadata?.requiresRecallDate) && status?.key !== "NE_REPOND_PAS";
+}

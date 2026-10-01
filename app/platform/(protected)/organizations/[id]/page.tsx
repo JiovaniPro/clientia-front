@@ -3,20 +3,24 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { DeleteOrganizationModal } from "@/components/platform/DeleteOrganizationModal";
+import { formatDate, PlatformNotice, PlatformPage, PlatformPageHeader } from "@/components/platform/PlatformPage";
 import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ApiError } from "@/lib/api/client";
 import type { PlatformOrganizationDetailDTO, PlatformOrganizationUserDTO } from "@/lib/api/platformOrganizations";
-import { getOrganization, setOrganizationStatus } from "@/lib/api/platformOrganizations";
+import { deleteOrganization, getOrganization, setOrganizationStatus } from "@/lib/api/platformOrganizations";
 import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 /**
  * Détail en lecture seule pour les utilisateurs — la gestion fine reste l'écran
  * /admin/users de l'organisation elle-même (§2.2), pas une deuxième porte d'entrée
  * qui le dupliquerait. Suspendre/réactiver (§5.29 sous-lot 6), en revanche, est
  * bien à sa place ici : c'est une action sur l'ORGANISATION, pas sur un utilisateur.
+ * Supprimer (suppression douce) n'est possible qu'une fois suspendue ; une organisation
+ * supprimée s'affiche ici en lecture seule, sans aucune action.
  */
 export default function PlatformOrganizationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +32,9 @@ export default function PlatformOrganizationDetailPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isTogglingStatus, setIsTogglingStatus] = useState(false);
   const [showSuspendConfirm, setShowSuspendConfirm] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchOrganization = useCallback(async () => {
     setIsLoading(true);
@@ -75,6 +82,22 @@ export default function PlatformOrganizationDetailPage() {
     }
   }
 
+  async function handleDelete(confirmName: string) {
+    if (!organization) return;
+    setDeleteError(null);
+    setNotice(null);
+    setIsDeleting(true);
+    try {
+      setOrganization(await authedFetch((token) => deleteOrganization(organization.id, confirmName, token)));
+      setShowDeleteModal(false);
+      setNotice("Organisation supprimée — plus aucun accès possible, données conservées.");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const columns: AdminTableColumn<PlatformOrganizationUserDTO>[] = [
     {
       header: "Nom",
@@ -94,56 +117,82 @@ export default function PlatformOrganizationDetailPage() {
     },
   ];
 
+  const isDeleted = Boolean(organization?.deletedAt);
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5 p-8">
-      <Link href="/platform/organizations" className="text-sm text-forest-600 hover:underline">
-        ← Toutes les organisations
+    <PlatformPage>
+      <Link
+        href={isDeleted ? "/platform/organizations/deleted" : "/platform/organizations"}
+        className="inline-block text-sm text-ink-muted hover:text-ink hover:underline"
+      >
+        ← {isDeleted ? "Organisations supprimées" : "Toutes les organisations"}
       </Link>
 
-      {notice ? (
-        <p className="rounded-md border border-forest-600/30 bg-forest-600/10 px-3 py-2 text-sm text-forest-600">
-          {notice}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
-          {error}
-        </p>
-      ) : null}
+      {notice ? <PlatformNotice tone="success">{notice}</PlatformNotice> : null}
+      {error ? <PlatformNotice tone="danger">{error}</PlatformNotice> : null}
 
       {isLoading || !organization ? (
         <p className="text-sm text-ink-muted">Chargement…</p>
       ) : (
         <>
-          <header className="flex items-center justify-between">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Console Super Admin</p>
-              <h1 className="font-display text-2xl font-bold text-ink">{organization.name}</h1>
-              <p className="font-mono text-xs text-ink-faint">{organization.slug}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <StatusBadge
-                label={organization.isActive ? "Active" : "Suspendue"}
-                color={organization.isActive ? "var(--color-forest-600)" : "var(--color-status-danger)"}
-              />
-              <Button
-                variant={organization.isActive ? "danger" : "secondary"}
-                size="sm"
-                onClick={handleToggleStatusClick}
-                disabled={isTogglingStatus}
-              >
-                {organization.isActive ? "Suspendre" : "Réactiver"}
-              </Button>
-            </div>
-          </header>
+          <PlatformPageHeader
+            eyebrow={isDeleted ? "Organisation supprimée · lecture seule" : "Organisation"}
+            title={organization.name}
+            description={<span className="font-mono text-xs text-ink-faint">{organization.slug}</span>}
+            actions={
+              isDeleted ? null : (
+                <Button
+                  variant={organization.isActive ? "danger" : "secondary"}
+                  size="sm"
+                  onClick={handleToggleStatusClick}
+                  disabled={isTogglingStatus}
+                >
+                  {organization.isActive ? "Suspendre" : "Réactiver"}
+                </Button>
+              )
+            }
+          />
 
-          <div className="rounded-lg border border-border bg-surface p-4 text-sm text-ink-muted shadow-flat">
-            Créée le {new Date(organization.createdAt).toLocaleDateString("fr-FR")} — {organization._count.users}{" "}
-            utilisateur{organization._count.users > 1 ? "s" : ""}.
-          </div>
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border shadow-flat sm:grid-cols-4">
+            <div className="bg-surface p-4">
+              <dt className="font-mono text-xs uppercase tracking-wider text-ink-muted">Statut</dt>
+              <dd className="mt-2">
+                <StatusBadge
+                  label={isDeleted ? "Supprimée" : organization.isActive ? "Active" : "Suspendue"}
+                  color={
+                    isDeleted
+                      ? "var(--color-ink-faint)"
+                      : organization.isActive
+                        ? "var(--color-forest-600)"
+                        : "var(--color-status-danger)"
+                  }
+                />
+              </dd>
+            </div>
+            <div className="bg-surface p-4">
+              <dt className="font-mono text-xs uppercase tracking-wider text-ink-muted">Utilisateurs</dt>
+              <dd className="mt-1 font-display text-2xl font-bold tabular-nums text-ink">{organization._count.users}</dd>
+            </div>
+            <div className="bg-surface p-4">
+              <dt className="font-mono text-xs uppercase tracking-wider text-ink-muted">Créée le</dt>
+              <dd className="mt-2 text-sm text-ink">{formatDate(organization.createdAt)}</dd>
+            </div>
+            <div className="bg-surface p-4">
+              <dt className="font-mono text-xs uppercase tracking-wider text-ink-muted">
+                {isDeleted ? "Supprimée le" : "Espace de travail"}
+              </dt>
+              <dd className="mt-2 truncate text-sm text-ink">
+                {organization.deletedAt ? (
+                  formatDate(organization.deletedAt)
+                ) : (
+                  <span className="font-mono">{organization.slug}</span>
+                )}
+              </dd>
+            </div>
+          </dl>
 
-          <div>
-            <h2 className="mb-2 font-display text-lg font-semibold text-ink">Utilisateurs</h2>
+          <section className="space-y-3">
+            <h2 className="font-display text-lg font-semibold text-ink">Utilisateurs</h2>
             <AdminTable
               columns={columns}
               rows={organization.users}
@@ -151,7 +200,31 @@ export default function PlatformOrganizationDetailPage() {
               isLoading={false}
               emptyMessage="Aucun utilisateur."
             />
-          </div>
+          </section>
+
+          {isDeleted ? null : (
+            <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-status-danger/30 p-5">
+              <div className="space-y-1">
+                <h2 className="font-display text-base font-semibold text-ink">Supprimer l&apos;organisation</h2>
+                <p className="text-sm text-ink-muted">
+                  {organization.isActive
+                    ? "Suspendez d'abord l'organisation : seule une organisation suspendue peut être supprimée."
+                    : "Accès coupé définitivement et organisation retirée de la console. Les données sont conservées."}
+                </p>
+              </div>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={organization.isActive}
+                onClick={() => {
+                  setDeleteError(null);
+                  setShowDeleteModal(true);
+                }}
+              >
+                Supprimer
+              </Button>
+            </section>
+          )}
         </>
       )}
 
@@ -165,6 +238,17 @@ export default function PlatformOrganizationDetailPage() {
           isConfirming={isTogglingStatus}
         />
       ) : null}
-    </div>
+
+      {showDeleteModal && organization ? (
+        <DeleteOrganizationModal
+          organizationName={organization.name}
+          userCount={organization._count.users}
+          onConfirm={handleDelete}
+          onClose={() => setShowDeleteModal(false)}
+          isConfirming={isDeleting}
+          error={deleteError}
+        />
+      ) : null}
+    </PlatformPage>
   );
 }

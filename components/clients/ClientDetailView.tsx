@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
 import { SendEmailModal } from "@/components/clients/SendEmailModal";
 
@@ -51,6 +52,7 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
   const [maritalStatusKey, setMaritalStatusKey] = useState("");
   const [childrenKey, setChildrenKey] = useState("");
   const [typeRdvKey, setTypeRdvKey] = useState("");
+  const [email, setEmail] = useState("");
   const [adresse, setAdresse] = useState("");
   const [comment, setComment] = useState("");
   const [infoSaving, setInfoSaving] = useState(false);
@@ -65,21 +67,41 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
   const [isSendEmailOpen, setIsSendEmailOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
-  function loadClientIntoForm(c: ClientDetailDTO) {
-    setClient(c);
+  /**
+   * §6.25 lot E — une fonction de chargement par section : enregistrer une section
+   * ne recharge QUE celle-ci. Avant, les deux enregistrements rechargeaient tout,
+   * et écrasaient en silence la saisie non enregistrée de l'autre section.
+   */
+  function loadInfoSection(c: ClientDetailDTO) {
     setDossierStatusKey(c.dossierStatus.key);
     setCiviliteKey(c.civilite?.key ?? "");
     setMaritalStatusKey(c.maritalStatus?.key ?? "");
     setChildrenKey(c.children?.key ?? "");
     setTypeRdvKey(c.typeRdv?.key ?? "");
+    setEmail(c.email ?? "");
     setAdresse(c.adresse ?? "");
     setComment(c.comment ?? "");
+  }
+  function loadFinalStatusSection(c: ClientDetailDTO) {
     setFinalStatusKey(c.finalStatus.key);
   }
 
+  // §6.25 lot E — une garde par section (beforeunload uniquement : pas de fermeture
+  // ici, la navigation interne n'est pas interceptée). Référence prise au chargement du dossier.
+  const infoGuard = useUnsavedChangesGuard(
+    { dossierStatusKey, civiliteKey, maritalStatusKey, childrenKey, typeRdvKey, email, adresse, comment },
+    undefined,
+    client !== null,
+  );
+  const finalStatusGuard = useUnsavedChangesGuard({ finalStatusKey }, undefined, client !== null);
+
   useEffect(() => {
     authedFetch((token) => getClient(clientId, token))
-      .then(loadClientIntoForm)
+      .then((c) => {
+        setClient(c);
+        loadInfoSection(c);
+        loadFinalStatusSection(c);
+      })
       .catch(() => setError("Impossible de charger ce dossier."));
 
     Promise.all(LIST_KEYS.map((key) => authedFetch((token) => getConfigurableList(key, token))))
@@ -88,7 +110,6 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
         setLists(map);
       })
       .catch(() => setError("Impossible de charger les listes configurables."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authedFetch, clientId]);
 
   /**
@@ -119,13 +140,16 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
             maritalStatusKey: maritalStatusKey || undefined,
             childrenKey: childrenKey || undefined,
             typeRdvKey: typeRdvKey || undefined,
+            email: email.trim() || undefined,
             adresse: adresse || undefined,
             comment: comment || undefined,
           },
           token,
         ),
       );
-      loadClientIntoForm(updated);
+      setClient(updated);
+      loadInfoSection(updated);
+      infoGuard.markClean();
       setInfoSuccess(true);
     } catch (err) {
       setInfoError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
@@ -140,7 +164,9 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
     setFinalStatusSaving(true);
     try {
       const updated = await authedFetch((token) => updateClient(clientId, { finalStatusKey }, token));
-      loadClientIntoForm(updated);
+      setClient(updated);
+      loadFinalStatusSection(updated);
+      finalStatusGuard.markClean();
       setFinalStatusSuccess(true);
     } catch (err) {
       setFinalStatusError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
@@ -273,6 +299,7 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
           </Select>
         </div>
 
+        <Input label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <Input label="Adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
         <Input label="Commentaire" value={comment} onChange={(e) => setComment(e.target.value)} />
 

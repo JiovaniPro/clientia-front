@@ -5,6 +5,8 @@ export interface PlatformOrganizationSummaryDTO {
   name: string;
   slug: string;
   isActive: boolean;
+  /** Renseigné = supprimée (suppression douce) — lecture seule, absente de la liste active. */
+  deletedAt: string | null;
   createdAt: string;
   _count: { users: number };
 }
@@ -36,7 +38,6 @@ export interface CreatePlatformOrganizationInput {
   organizationName: string;
   organizationSlug: string;
   adminEmail: string;
-  adminPassword: string;
   adminFirstName?: string;
   adminLastName?: string;
 }
@@ -53,4 +54,14 @@ export function createOrganization(input: CreatePlatformOrganizationInput, acces
  */
 export function setOrganizationStatus(id: string, isActive: boolean, accessToken: string) {
   return apiClient.patch<PlatformOrganizationDetailDTO>(`/platform/organizations/${id}/status`, { isActive }, accessToken);
+}
+
+/** Organisations supprimées (suppression douce) — consultation seule. */
+export function listDeletedOrganizations(accessToken: string) {
+  return apiClient.get<PlatformOrganizationSummaryDTO[]>("/platform/organizations/deleted", accessToken);
+}
+
+/** Exige une organisation suspendue ; `confirmName` est revérifié côté serveur (nom exact). */
+export function deleteOrganization(id: string, confirmName: string, accessToken: string) {
+  return apiClient.delete<PlatformOrganizationDetailDTO>(`/platform/organizations/${id}`, accessToken, { confirmName });
 }

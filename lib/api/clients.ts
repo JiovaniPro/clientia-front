@@ -87,6 +87,8 @@ export interface CreateClientInput {
   phoneNumber: string;
   countryKey: string;
   email?: string;
+  typeRdvKey?: string;
+  adresse?: string;
 }
 
 /** Étape de la cascade §P0.2 : créer le dossier avant de pouvoir rejouer le changement de statut. */

@@ -42,3 +42,13 @@ export interface ChangePlatformPasswordInput {
 export function changePlatformPassword(input: ChangePlatformPasswordInput, accessToken: string) {
   return apiClient.post<void>("/platform/auth/change-password", input, accessToken);
 }
+
+export interface UpdatePlatformProfileInput {
+  email?: string;
+  name?: string;
+}
+/** Pas de `PATCH /platform/auth/me` : on réutilise `PATCH /platform/admins/:id`
+ * (tout Super Admin peut déjà modifier n'importe quel Super Admin, soi compris). */
+export function updatePlatformProfile(id: string, input: UpdatePlatformProfileInput, accessToken: string) {
+  return apiClient.patch<PlatformAdminDTO>(`/platform/admins/${id}`, input, accessToken);
+}

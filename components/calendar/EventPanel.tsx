@@ -17,7 +17,6 @@ import type {
   ConflictSeverity,
   CreateEventInput,
   EventAttendeeDTO,
-  EventCategoryDTO,
   EventConflictDTO,
   EventReminderDTO,
   EventType,
@@ -28,15 +27,12 @@ import {
   addAttendee,
   changeAppointmentStatus,
   createEvent,
-  createEventCategory,
   createReminder,
   delegateAppointment,
   deleteEvent,
-  deleteEventCategory,
   deleteReminder,
   getAgentAvailability,
   getEvent,
-  listEventCategories,
   markAttendance,
   listReminders,
   removeAttendee,
@@ -49,6 +45,7 @@ import { toDatetimeLocal } from "@/lib/calendar/dateUtils";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { cn } from "@/lib/cn";
 import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
 import { notifyNotificationsBadgeStale } from "@/lib/notifications/badgeSignal";
 
@@ -132,7 +129,7 @@ const CONFLICT_SEVERITY_CLASS: Record<ConflictSeverity, string> = {
 const REMINDER_METHOD_LABEL: Record<ReminderMethod, string> = {
   POPUP: "Popup (application)",
   EMAIL: "E-mail",
-  SOUND: "Popup + son",
+  SOUND: "Popup avec son",
 };
 
 /**
@@ -158,7 +155,7 @@ interface EventPanelProps {
    * (bannière). Pré-remplit un rendez-vous avec l'appel et l'agent déjà connus,
    * sans empêcher l'utilisateur de les changer avant d'enregistrer.
    */
-  prefill?: { title: string; callId: string; agentRdvId?: string };
+  prefill?: { title: string; callId: string; agentRdvId?: string; withMeet?: boolean };
   calendarId: string;
   canDelete: boolean;
   onClose: () => void;
@@ -216,6 +213,12 @@ export function EventPanel({
    * un admin non organisateur voit Confirmer/Refuser/Déléguer. Déléguer exige en plus calendar.viewAll.
    */
   const canManageAppointmentStatus = canWriteThisEvent && hasPermission("calendar.manageAppointments");
+  /**
+   * Confirmer/Refuser : l'agent RDV assigné uniquement (règle métier, appliquée par
+   * changeAppointmentStatus côté backend) — ni le calliste qui a pris le RDV, ni un
+   * admin, qui passe par « Déléguer ».
+   */
+  const isAssignedAgentRdv = Boolean(event && user && event.agentRdvId === user.id);
 
   /**
    * Suivi honoré/manqué — contrôle strict du backend (markAppointmentAttendance) :
@@ -238,16 +241,13 @@ export function EventPanel({
 
   const [title, setTitle] = useState(event?.title ?? prefill?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
+  // Pré-cochée si le type de RDV du dossier demande une visio ; reste décochable.
+  const [withMeet, setWithMeet] = useState(event ? Boolean(event.meetLink) : Boolean(prefill?.withMeet));
   const [type, setType] = useState<EventType>(event?.type ?? (prefill ? "APPOINTMENT" : "MEETING"));
   const [startAt, setStartAt] = useState(toDatetimeLocal(defaultStart));
   const [endAt, setEndAt] = useState(toDatetimeLocal(defaultEnd));
   const [callId, setCallId] = useState(event?.callId ?? prefill?.callId ?? "");
   const [agentRdvId, setAgentRdvId] = useState(event?.agentRdvId ?? prefill?.agentRdvId ?? "");
-  const [categoryId, setCategoryId] = useState(event?.categoryId ?? "");
-  const [categories, setCategories] = useState<EventCategoryDTO[]>([]);
-  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newCategoryColor, setNewCategoryColor] = useState("#c2410c");
   const [calls, setCalls] = useState<CallDTO[]>([]);
   const [agents, setAgents] = useState<UserListItemDTO[]>([]);
   const [agentBusyCount, setAgentBusyCount] = useState<number | null>(null);
@@ -263,7 +263,14 @@ export function EventPanel({
   const [isInvitingAll, setIsInvitingAll] = useState(false);
   const [reminders, setReminders] = useState<EventReminderDTO[]>([]);
   const [newReminderMinutes, setNewReminderMinutes] = useState("15");
-  const [newReminderMethod, setNewReminderMethod] = useState<ReminderMethod>("POPUP");
+  // Plusieurs méthodes cochables à la fois (ex. popup + e-mail) : un EventReminder créé par méthode.
+  const [newReminderPopup, setNewReminderPopup] = useState(true);
+  const [newReminderSound, setNewReminderSound] = useState(false);
+  const [newReminderEmail, setNewReminderEmail] = useState(false);
+  const newReminderMethods: ReminderMethod[] = [
+    ...(newReminderPopup ? [newReminderSound ? ("SOUND" as const) : ("POPUP" as const)] : []),
+    ...(newReminderEmail ? (["EMAIL"] as const) : []),
+  ];
   const [isAddingReminder, setIsAddingReminder] = useState(false);
   const [conflicts, setConflicts] = useState<EventConflictDTO[]>([]);
   const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
@@ -291,45 +298,8 @@ export function EventPanel({
     markedAt: event?.attendanceMarkedAt ?? null,
     markedBy: event?.attendanceMarkedBy ?? null,
   });
-  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<EventCategoryDTO | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [originalCategoryDeleted, setOriginalCategoryDeleted] = useState(false);
 
-  useEffect(() => {
-    authedFetch((token) => listEventCategories(token))
-      .then(setCategories)
-      .catch(() => setError("Impossible de charger les catégories."));
-  }, [authedFetch]);
-
-  async function handleCreateCategory() {
-    if (!newCategoryName.trim()) return;
-    setError(null);
-    try {
-      const category = await authedFetch((token) =>
-        createEventCategory({ name: newCategoryName.trim(), color: newCategoryColor, borderColor: newCategoryColor }, token),
-      );
-      setCategories((prev) => [...prev, category]);
-      setCategoryId(category.id);
-      setIsCreatingCategory(false);
-      setNewCategoryName("");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Impossible de créer la catégorie.");
-    }
-  }
-
-  async function handleDeleteCategory(id: string) {
-    setError(null);
-    try {
-      await authedFetch((token) => deleteEventCategory(id, token));
-      setCategories((prev) => prev.filter((c) => c.id !== id));
-      if (categoryId === id) setCategoryId("");
-      if (id === event?.categoryId) setOriginalCategoryDeleted(true);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Impossible de supprimer la catégorie.");
-    } finally {
-      setCategoryDeleteTarget(null);
-    }
-  }
 
   /**
    * `listEvents` (grille) ne renvoie pas `attendees` — évité côté backend pour ne
@@ -421,13 +391,17 @@ export function EventPanel({
       setError("Le délai doit être un nombre entier de minutes, supérieur à 0.");
       return;
     }
+    if (newReminderMethods.length === 0) {
+      setError("Choisissez au moins une méthode de rappel.");
+      return;
+    }
     setError(null);
     setIsAddingReminder(true);
     try {
-      const reminder = await authedFetch((token) =>
-        createReminder(event.id, { minutesBefore, method: newReminderMethod }, token),
-      );
-      setReminders((prev) => [...prev, reminder].sort((a, b) => a.minutesBefore - b.minutesBefore));
+      for (const method of newReminderMethods) {
+        const reminder = await authedFetch((token) => createReminder(event.id, { minutesBefore, method }, token));
+        setReminders((prev) => [...prev, reminder].sort((a, b) => a.minutesBefore - b.minutesBefore));
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible d'ajouter ce rappel.");
     } finally {
@@ -713,9 +687,10 @@ export function EventPanel({
               description: description || undefined,
               startAt: new Date(startAt).toISOString(),
               endAt: new Date(endAt).toISOString(),
-              categoryId: categoryId || null,
               type,
               ...(type === "APPOINTMENT" ? { agentRdvId: agentRdvId || undefined, callId: callId || undefined } : {}),
+              // Envoyé seulement s'il change : chaque envoi fait partir des e-mails Google.
+              ...(withMeet !== Boolean(event.meetLink) ? { withMeet } : {}),
             },
             token,
           ),
@@ -728,8 +703,9 @@ export function EventPanel({
           startAt: new Date(startAt).toISOString(),
           endAt: new Date(endAt).toISOString(),
           type,
-          categoryId: categoryId || undefined,
           ...(type === "APPOINTMENT" ? { callId, agentRdvId: agentRdvId || undefined } : {}),
+          // Toujours explicite : décocher l'emporte sur la règle du type de RDV côté serveur.
+          withMeet,
         };
         await authedFetch((token) => createEvent(input, token));
       }
@@ -762,7 +738,7 @@ export function EventPanel({
    * §6.25 lot D — surveillés : les 8 champs qui attendent "Enregistrer", plus les
    * saisies secondaires non encore validées, comptées seulement tant qu'elles sont
    * visibles (refermer leur sous-formulaire = abandon explicite). Jamais surveillé :
-   * ce qui part à l'API immédiatement (invités, rappels, catégories créées/supprimées,
+   * ce qui part à l'API immédiatement (invités, rappels,
    * confirmer/refuser) ; ni minutes/méthode de rappel, préréglages non vidés après
    * ajout. Lecture seule : `null`, donc jamais modifié.
    */
@@ -777,10 +753,7 @@ export function EventPanel({
           endAt,
           callId,
           agentRdvId,
-          // Supprimer la catégorie de l'événement la lui retire aussi côté serveur : "" n'est alors pas une modification.
-          categoryId: originalCategoryDeleted && categoryId === "" ? (event?.categoryId ?? "") : categoryId,
           pending: {
-            newCategoryName: isCreatingCategory ? newCategoryName.trim() : "",
             newAttendeeEmail: attendeeMode === "external" ? newAttendeeEmail.trim() : "",
             newAttendeeName: attendeeMode === "external" ? newAttendeeName.trim() : "",
             selectedInternalUserId: attendeeMode === "internal" ? (selectedInternalUser?.id ?? "") : "",
@@ -881,74 +854,33 @@ export function EventPanel({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-ink" htmlFor="event-category">
-              Catégorie
-            </label>
-            <button
-              type="button"
-              className="text-xs font-medium text-forest-600 hover:underline disabled:opacity-60"
-              onClick={() => setIsCreatingCategory((v) => !v)}
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              checked={withMeet}
+              onChange={(e) => setWithMeet(e.target.checked)}
               disabled={readOnly}
+              className="accent-forest-600"
+            />
+            Visio Google Meet
+          </label>
+          <p className="text-xs text-ink-muted">
+            Google envoie l&apos;invitation et le lien au client, à l&apos;agent RDV et à tous les participants
+            (obligatoires comme facultatifs).
+          </p>
+          {event?.meetLink ? (
+            <a
+              href={event.meetLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all text-sm text-forest-600 underline underline-offset-2"
             >
-              {isCreatingCategory ? "Annuler" : "+ Nouvelle catégorie"}
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select
-              id="event-category"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              disabled={readOnly}
-              className="flex-1"
-            >
-              <option value="">Aucune</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-            {categoryId && !readOnly ? (
-              <span
-                className="h-6 w-6 shrink-0 rounded-md border border-border"
-                style={{ backgroundColor: categories.find((c) => c.id === categoryId)?.color }}
-                title="Couleur de la catégorie"
-              />
-            ) : null}
-            {categoryId && !readOnly ? (
-              <button
-                type="button"
-                className="whitespace-nowrap text-xs text-status-danger hover:underline"
-                onClick={() => setCategoryDeleteTarget(categories.find((c) => c.id === categoryId) ?? null)}
-                title="Supprime la catégorie elle-même (pas seulement son affectation ici) — les autres événements qui l'utilisent perdent aussi le tag."
-              >
-                Supprimer la catégorie
-              </button>
-            ) : null}
-          </div>
-          {isCreatingCategory ? (
-            <div className="flex items-end gap-2 rounded-md border border-border bg-surface-subtle p-2.5">
-              <Input
-                label="Nom"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="flex-1"
-              />
-              <Input
-                label="Couleur"
-                type="color"
-                value={newCategoryColor}
-                onChange={(e) => setNewCategoryColor(e.target.value)}
-                className="w-14 p-1"
-              />
-              <Button type="button" size="sm" onClick={handleCreateCategory} disabled={!newCategoryName.trim()}>
-                Créer
-              </Button>
-            </div>
+              {event.meetLink}
+            </a>
           ) : null}
         </div>
+
 
         {isEdit && event ? (
           <div className="flex flex-col gap-1.5">
@@ -1226,21 +1158,51 @@ export function EventPanel({
                   onChange={(e) => setNewReminderMinutes(e.target.value)}
                   className="w-28"
                 />
-                <Select
-                  label="Méthode"
-                  value={newReminderMethod}
-                  onChange={(e) => setNewReminderMethod(e.target.value as ReminderMethod)}
-                  className="flex-1"
+                <fieldset className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-1 pb-2 text-sm text-ink">
+                  <legend className="sr-only">Méthodes de rappel</legend>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={newReminderPopup}
+                      onChange={(e) => setNewReminderPopup(e.target.checked)}
+                      className="accent-forest-600"
+                    />
+                    Popup
+                  </label>
+                  <label className={cn("flex items-center gap-1.5", !newReminderPopup && "text-ink-faint")}>
+                    <input
+                      type="checkbox"
+                      checked={newReminderSound}
+                      disabled={!newReminderPopup}
+                      onChange={(e) => setNewReminderSound(e.target.checked)}
+                      className="accent-forest-600"
+                    />
+                    avec son
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={newReminderEmail}
+                      onChange={(e) => setNewReminderEmail(e.target.checked)}
+                      className="accent-forest-600"
+                    />
+                    E-mail
+                  </label>
+                </fieldset>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleAddReminder}
+                  disabled={isAddingReminder || newReminderMethods.length === 0}
                 >
-                  <option value="POPUP">{REMINDER_METHOD_LABEL.POPUP}</option>
-                  <option value="EMAIL">{REMINDER_METHOD_LABEL.EMAIL}</option>
-                  <option value="SOUND">{REMINDER_METHOD_LABEL.SOUND}</option>
-                </Select>
-                <Button type="button" size="sm" onClick={handleAddReminder} disabled={isAddingReminder}>
                   Ajouter
                 </Button>
               </div>
-              <p className="text-xs text-ink-muted">{REMINDER_METHOD_HELP[newReminderMethod]}</p>
+              {newReminderMethods.map((method) => (
+                <p key={method} className="text-xs text-ink-muted">
+                  <span className="font-medium">{REMINDER_METHOD_LABEL[method]} :</span> {REMINDER_METHOD_HELP[method]}
+                </p>
+              ))}
             </div>
           </div>
         ) : isEdit && event && canWriteThisEvent ? (
@@ -1274,8 +1236,15 @@ export function EventPanel({
             canManageAppointmentStatus &&
             (appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" || (appointmentStatus === "CONFIRME" && !hasStarted)) ? (
               <div className="space-y-2 border-t border-terracotta-500/30 pt-3">
+                {appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" && !isAssignedAgentRdv ? (
+                  <p className="text-xs text-ink-muted">
+                    {event?.agentRdvId
+                      ? "En attente de confirmation par l'agent RDV assigné — lui seul peut confirmer ou refuser."
+                      : "Aucun agent RDV assigné : déléguez le rendez-vous pour qu'il puisse être confirmé."}
+                  </p>
+                ) : null}
                 <div className="flex gap-2">
-                  {appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" ? (
+                  {appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" && isAssignedAgentRdv ? (
                     <>
                       <Button
                         size="sm"
@@ -1476,15 +1445,6 @@ export function EventPanel({
 
       {confirmElement}
 
-      {categoryDeleteTarget ? (
-        <ConfirmModal
-          title="Supprimer cette catégorie"
-          message={`Supprimer « ${categoryDeleteTarget.name} » ? Les autres événements qui l'utilisent perdront ce tag, mais ne seront pas supprimés.`}
-          confirmLabel="Supprimer"
-          onConfirm={() => handleDeleteCategory(categoryDeleteTarget.id)}
-          onClose={() => setCategoryDeleteTarget(null)}
-        />
-      ) : null}
 
       {showDeleteConfirm ? (
         <ConfirmModal

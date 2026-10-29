@@ -30,7 +30,6 @@ const authedFetch = (fn: (t: string) => unknown) => Promise.resolve(fn("tok"));
 const hasPermission = (k: string) => permissions.includes(k);
 vi.mock("@/lib/auth/AuthContext", () => ({ useAuth: () => ({ authedFetch, hasPermission }) }));
 vi.mock("@/components/calls/QualifyCallModal", () => ({ QualifyCallModal: () => null }));
-vi.mock("@/components/calls/NewCallModal", () => ({ NewCallModal: () => null }));
 vi.mock("@/components/calls/ImportCallsModal", () => ({ ImportCallsModal: () => null }));
 
 function call(id: string, firstName: string): CallDTO {

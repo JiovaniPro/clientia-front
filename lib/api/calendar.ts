@@ -34,38 +34,6 @@ export function createCalendar(input: CreateCalendarInput, accessToken: string) 
   return apiClient.post<CalendarDTO>("/calendars", input, accessToken);
 }
 
-export interface EventCategoryDTO {
-  id: string;
-  userId: string;
-  name: string;
-  color: string;
-  borderColor: string;
-  textColor: string;
-  icon: string | null;
-  createdAt: string;
-}
-
-/** Personnelles, comme les calendriers — pas de partage entre utilisateurs (§C1). */
-export function listEventCategories(accessToken: string) {
-  return apiClient.get<EventCategoryDTO[]>("/event-categories", accessToken);
-}
-
-export interface CreateEventCategoryInput {
-  name: string;
-  color: string;
-  borderColor: string;
-  textColor?: string;
-  icon?: string;
-}
-
-export function createEventCategory(input: CreateEventCategoryInput, accessToken: string) {
-  return apiClient.post<EventCategoryDTO>("/event-categories", input, accessToken);
-}
-
-export function deleteEventCategory(id: string, accessToken: string) {
-  return apiClient.delete<void>(`/event-categories/${id}`, accessToken);
-}
-
 export interface CalendarEventDTO {
   id: string;
   organizationId: string;
@@ -73,6 +41,8 @@ export interface CalendarEventDTO {
   title: string;
   description: string | null;
   location: string | null;
+  /** Visio Google Meet — null si l'événement n'en a pas (ou si Google n'est pas configuré). */
+  meetLink: string | null;
   startAt: string;
   endAt: string;
   timezone: string;
@@ -311,6 +281,8 @@ export interface CreateEventInput {
   agentRdvId?: string;
   callNotesSnapshot?: string;
   agentComment?: string;
+  /** Crée une visio Google Meet ; Google invite le client, l'agent RDV et les participants. */
+  withMeet?: boolean;
 }
 
 export function createEvent(input: CreateEventInput, accessToken: string) {
@@ -337,6 +309,8 @@ export interface UpdateEventInput {
   clientId?: string;
   agentRdvId?: string;
   agentComment?: string;
+  /** true = ajouter la visio, false = la retirer (Google envoie l'annulation), absent = inchangé. */
+  withMeet?: boolean;
 }
 
 export function updateEvent(id: string, input: UpdateEventInput, accessToken: string) {

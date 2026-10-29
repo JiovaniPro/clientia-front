@@ -6,8 +6,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Button } from "@/components/ui/Button";
 import { CalendarGrid } from "@/components/calendar/CalendarGrid";
 import { EventPanel } from "@/components/calendar/EventPanel";
-import type { CalendarDTO, CalendarEventDTO, EventCategoryDTO } from "@/lib/api/calendar";
-import { createCalendar, getEvent, listCalendars, listEventCategories, listEvents, updateEvent } from "@/lib/api/calendar";
+import type { CalendarDTO, CalendarEventDTO } from "@/lib/api/calendar";
+import { createCalendar, getEvent, listCalendars, listEvents, updateEvent } from "@/lib/api/calendar";
 import { ApiError } from "@/lib/api/client";
 import type { ClientDetailDTO } from "@/lib/api/clients";
 import { getClient } from "@/lib/api/clients";
@@ -18,7 +18,7 @@ import { buildPersonColors } from "@/lib/calendar/personColors";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 type ViewMode = "week" | "day";
-type EventPrefill = { title: string; callId: string; agentRdvId?: string };
+type EventPrefill = { title: string; callId: string; agentRdvId?: string; withMeet?: boolean };
 type PanelState =
   | { mode: "create"; start: Date; prefill?: EventPrefill }
   | { mode: "edit"; event: CalendarEventDTO }
@@ -42,9 +42,8 @@ function eventPerson(event: CalendarEventDTO) {
  * `?pendingClientId=<id>` (posé par QualifyCallModal juste après la création
  * réussie d'un dossier), une bannière affiche le client en attente de
  * planification et un clic sur un créneau pré-remplit un rendez-vous avec son
- * appel et son agent déjà sélectionnés. Sous-lot C1 : catégories personnelles —
- * `categoriesById` colore le liseré des événements sur la grille (voir
- * CalendarGrid.tsx), la sélection/création se fait depuis EventPanel. Le reste du
+ * appel et son agent déjà sélectionnés. Les catégories personnelles (sous-lot C1)
+ * ont été retirées de l'interface : elles ne servaient qu'à un liseré de 3 px. Le reste du
  * sous-lot C (participants, rappels d'événement, conflits généraux, récurrence)
  * arrive dans des livrables séparés, tout comme le workflow accepter/refuser/
  * compteur de disponibilité (reste du sous-lot D). Les deux invariants absolus du
@@ -79,8 +78,6 @@ function CalendarProContent() {
   const [dropError, setDropError] = useState<string | null>(null);
   const [pendingClient, setPendingClient] = useState<ClientDetailDTO | null>(null);
   const [pendingClientError, setPendingClientError] = useState<string | null>(null);
-  const [categories, setCategories] = useState<EventCategoryDTO[]>([]);
-  const categoriesById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
   useEffect(() => {
     if (!pendingClientId) {
@@ -229,17 +226,6 @@ function CalendarProContent() {
     fetchEvents();
   }, [fetchEvents]);
 
-  const fetchCategories = useCallback(() => {
-    authedFetch((token) => listEventCategories(token))
-      .then(setCategories)
-      .catch(() => {
-        // Non bloquant : sans catégories, la grille retombe simplement sur la couleur de type.
-      });
-  }, [authedFetch]);
-
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
 
   function goToday() {
     setAnchorDate(new Date());
@@ -259,6 +245,8 @@ function CalendarProContent() {
           title: `RDV — ${personLabel(pendingClient, pendingClient.phoneNumber)}`,
           callId: pendingClient.callId,
           agentRdvId: pendingClient.agentId,
+          // Drapeau du type de RDV (configurable par organisation), jamais la clé RDV_VISIO en dur.
+          withMeet: Boolean(pendingClient.typeRdv?.metadata?.requiresVideoLink),
         }
       : undefined;
     setPanel({ mode: "create", start, prefill });
@@ -281,7 +269,6 @@ function CalendarProContent() {
     if (pendingClient) dismissPendingClient();
     clearEventDeepLink();
     fetchEvents();
-    fetchCategories(); // une catégorie a pu être créée/supprimée depuis le panneau (sous-lot C1).
   }
   function handleDeleted() {
     setPanel(null);
@@ -418,7 +405,6 @@ function CalendarProContent() {
         canDrag={canDragEvent}
         onEventDrop={handleEventDrop}
         pendingEventId={pendingEventId}
-        categoriesById={categoriesById}
         personOf={personOfEvent}
       />
 

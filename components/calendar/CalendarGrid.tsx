@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { addDays, formatDayHeader, isSameDay } from "@/lib/calendar/dateUtils";
 import { layoutDayEvents } from "@/lib/calendar/layout";
-import type { CalendarEventDTO, EventCategoryDTO, EventType } from "@/lib/api/calendar";
+import type { CalendarEventDTO, EventType } from "@/lib/api/calendar";
 import { PASTEL_TEXT_COLOR } from "@/lib/calendar/personColors";
 
 /**
@@ -40,9 +40,8 @@ export const TYPE_LABEL: Record<EventType, string> = {
 
 /**
  * Sous-lot C4 — anneau de bordure pour la sévérité de conflit (décision actée),
- * distinct des 3 canaux déjà en place (fond = type, liseré gauche 3px = catégorie,
- * pastille de coin = invitation en attente). Composé manuellement dans le même
- * `boxShadow` inline que le liseré de catégorie (pas via les classes `ring-*` de
+ * distinct des canaux déjà en place (fond = type ou personne, pastille de coin =
+ * invitation en attente). Posé en `boxShadow` inline (pas via les classes `ring-*` de
  * Tailwind, qui poseraient leur propre `box-shadow` et se feraient écraser par le
  * style inline existant) : une couche "espacement" à la couleur de fond de la
  * carte pour garantir un anneau visible même quand la sévérité partage la même
@@ -115,8 +114,6 @@ interface CalendarGridProps {
   onEventDrop: (event: CalendarEventDTO, newStart: Date, newEnd: Date) => void;
   /** Événement en cours d'enregistrement serveur — affiché en attente (opacité réduite), pas interactif. */
   pendingEventId?: string | null;
-  /** Sous-lot C1 — indexées par id, pour afficher le liseré de couleur sans requête par événement. */
-  categoriesById?: Record<string, EventCategoryDTO>;
   /** Vue partagée : personne affichée sur le bloc (agent RDV, sinon organisateur) et sa couleur pastel. */
   personOf?: (event: CalendarEventDTO) => { name: string; color: string } | undefined;
 }
@@ -139,7 +136,6 @@ export function CalendarGrid({
   canDrag,
   onEventDrop,
   pendingEventId,
-  categoriesById = {},
   personOf,
 }: CalendarGridProps) {
   const now = useNow();
@@ -264,7 +260,6 @@ export function CalendarGrid({
             canDrag={canDrag}
             draggingEventId={drag?.eventId ?? null}
             pendingEventId={pendingEventId ?? null}
-            categoriesById={categoriesById}
             personOf={personOf}
             now={now}
             onStartDrag={startDrag}
@@ -292,7 +287,6 @@ function DayColumn({
   canDrag,
   draggingEventId,
   pendingEventId,
-  categoriesById,
   personOf,
   now,
   onStartDrag,
@@ -307,7 +301,6 @@ function DayColumn({
   canDrag: (event: CalendarEventDTO) => boolean;
   draggingEventId: string | null;
   pendingEventId: string | null;
-  categoriesById: Record<string, EventCategoryDTO>;
   personOf?: (event: CalendarEventDTO) => { name: string; color: string } | undefined;
   now: Date;
   onStartDrag: (event: CalendarEventDTO, mode: DragMode, e: React.PointerEvent) => void;
@@ -389,7 +382,6 @@ function DayColumn({
           const isPending = pendingEventId === event.id;
           const widthPct = 100 / totalCols;
           const leftPct = col * widthPct;
-          const category = event.categoryId ? categoriesById[event.categoryId] : undefined;
           const person = personOf?.(event);
           const background = person?.color ?? TYPE_COLOR[event.type];
           const draggable = canDrag(event);
@@ -426,23 +418,15 @@ function DayColumn({
                 style={{
                   backgroundColor: background,
                   ...(person ? { color: PASTEL_TEXT_COLOR } : {}),
-                  // Liseré de catégorie (sous-lot C1) + anneau de conflit (sous-lot C4),
-                  // composés dans le même box-shadow — le fond reste piloté par le type.
-                  boxShadow:
-                    [
-                      category ? `inset 3px 0 0 ${category.borderColor}` : null,
-                      event.conflictSeverity
-                        ? `0 0 0 2px ${background}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(", ") || undefined,
+                  // Anneau de conflit (sous-lot C4) — le fond reste piloté par le type ou la personne.
+                  boxShadow: event.conflictSeverity
+                    ? `0 0 0 2px ${background}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
+                    : undefined,
                 }}
                 title={[
                   event.title,
                   person?.name,
                   TYPE_LABEL[event.type],
-                  category ? `Catégorie : ${category.name}` : null,
                   event.hasPendingInvitation ? "Invitation en attente de votre réponse" : null,
                   event.conflictSeverity ? CONFLICT_SEVERITY_LABEL[event.conflictSeverity] : null,
                 ]

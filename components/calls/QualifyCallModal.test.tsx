@@ -16,11 +16,20 @@ vi.mock("@/lib/api/calls", async (importOriginal) => ({
   changeCallStatus: (...a: unknown[]) => changeCallStatus(...a),
 }));
 vi.mock("@/lib/api/clients", () => ({ createClientDossier: (...a: unknown[]) => createClientDossier(...a) }));
+const LISTS: Record<string, unknown[]> = {
+  CLIENT_COUNTRY: [
+    { id: "c1", key: "FR", label: "France", isDefault: true, isActive: true },
+    { id: "c2", key: "BE", label: "Belgique", isDefault: false, isActive: true },
+  ],
+  // Clés volontairement neutres : le comportement suit les drapeaux, jamais la clé.
+  CLIENT_TYPE_RDV: [
+    { id: "t1", key: "T_ADRESSE", label: "RDV à domicile", isDefault: true, isActive: true, metadata: { requiresAddress: true } },
+    { id: "t2", key: "T_VISIO", label: "RDV visio", isDefault: false, isActive: true, metadata: { requiresVideoLink: true } },
+    { id: "t3", key: "T_AGENCE", label: "RDV en agence", isDefault: false, isActive: true, metadata: null },
+  ],
+};
 vi.mock("@/lib/api/configurableLists", () => ({
-  getConfigurableList: vi.fn().mockResolvedValue([
-    { id: "c1", key: "FR", label: "France", isDefault: true },
-    { id: "c2", key: "BE", label: "Belgique", isDefault: false },
-  ]),
+  getConfigurableList: vi.fn((listKey: string) => Promise.resolve(LISTS[listKey] ?? [])),
 }));
 vi.mock("@/lib/api/users", () => ({
   listUsers: vi.fn().mockResolvedValue([{ id: "a1", firstName: "Alix", lastName: "Agent", email: "a@x.fr" }]),
@@ -38,6 +47,7 @@ const STATUSES = [
 const closeWithX = () => fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
 const dossierLoaded = async () => {
   await screen.findByRole("option", { name: "France" });
+  await screen.findByRole("option", { name: "RDV visio" });
   await vi.waitFor(() => expect(screen.getByLabelText("Agent RDV")).toHaveValue("a1"));
 };
 
@@ -81,6 +91,46 @@ describe("§6.25 lot C — CreateClientDossierModal seule", () => {
     closeWithX();
     expect(screen.getByText(GUARD_TITLE)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("Type de RDV choisi avec le client à la création du dossier", () => {
+  const submit = () => screen.getByRole("button", { name: "Créer et continuer" });
+
+  it("obligatoire, sans pré-sélection (pas de défaut silencieux)", async () => {
+    render(<CreateClientDossierModal call={CALL} onClose={vi.fn()} onCreated={vi.fn()} />);
+    await dossierLoaded();
+    expect(screen.getByLabelText("Type de RDV")).toHaveValue("");
+    expect(submit()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Type de RDV"), { target: { value: "T_AGENCE" } });
+    expect(submit()).toBeEnabled();
+  });
+
+  it("drapeau requiresAddress : adresse demandée et exigée, puis envoyée", async () => {
+    createClientDossier.mockResolvedValue({ id: "client1" });
+    render(<CreateClientDossierModal call={CALL} onClose={vi.fn()} onCreated={vi.fn()} />);
+    await dossierLoaded();
+    expect(screen.queryByLabelText("Adresse du rendez-vous")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Type de RDV"), { target: { value: "T_ADRESSE" } });
+    expect(submit()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Adresse du rendez-vous"), { target: { value: "1 rue de Paris" } });
+    fireEvent.click(submit());
+    await vi.waitFor(() =>
+      expect(createClientDossier).toHaveBeenCalledWith(
+        expect.objectContaining({ typeRdvKey: "T_ADRESSE", adresse: "1 rue de Paris" }),
+        "tok",
+      ),
+    );
+  });
+
+  it("drapeau requiresVideoLink : e-mail exigé (le lien Meet part par e-mail) et visio annoncée", async () => {
+    render(<CreateClientDossierModal call={{ ...CALL, email: null } as CallDTO} onClose={vi.fn()} onCreated={vi.fn()} />);
+    await dossierLoaded();
+    fireEvent.change(screen.getByLabelText("Type de RDV"), { target: { value: "T_VISIO" } });
+    expect(screen.getByText(/Un lien Google Meet sera créé/)).toBeInTheDocument();
+    expect(submit()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/^E-mail/), { target: { value: "client@exemple.com" } });
+    expect(submit()).toBeEnabled();
   });
 });
 
@@ -136,6 +186,7 @@ describe("§6.25 lot C — bascule qualification → dossier", () => {
     await goToDossierStep();
     createClientDossier.mockResolvedValue({ id: "client1" });
     changeCallStatus.mockResolvedValue({ call: { ...CALL, status: { key: "RDV" } } });
+    fireEvent.change(screen.getByLabelText("Type de RDV"), { target: { value: "T_AGENCE" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Créer et continuer" }));
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));

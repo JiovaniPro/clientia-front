@@ -99,7 +99,14 @@ export default function PlatformProtectedLayout({ children }: LayoutProps<"/plat
             </nav>
           </div>
           <div className="flex items-center gap-4">
-            <span className="hidden font-mono text-xs text-ink-muted sm:inline">{platformAdmin.email}</span>
+            <Link
+              href="/platform/account"
+              aria-current={pathname === "/platform/account" ? "page" : undefined}
+              className="hidden font-mono text-xs text-ink-muted hover:text-ink hover:underline sm:inline"
+              title="Mon compte"
+            >
+              {platformAdmin.email}
+            </Link>
             <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(true)}>
               Se déconnecter
             </Button>

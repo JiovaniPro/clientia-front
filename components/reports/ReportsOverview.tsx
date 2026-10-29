@@ -182,6 +182,10 @@ export function ReportsOverview({ userId, extraControls }: ReportsOverviewProps)
             />
           </div>
 
+          {/* Vue globale seulement (/admin/dashboard) : la performance de l'équipe, agent par agent —
+              `byUser` est déjà renvoyé par GET /reports/calls, jamais affiché avant. */}
+          {!userId ? <TeamPerformanceCard byUser={calls.byUser} /> : null}
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <ChartCard title="Appels qualifiés par heure">
@@ -284,6 +288,34 @@ export function StatCard({
     >
       {content}
     </button>
+  );
+}
+
+function TeamPerformanceCard({ byUser }: { byUser: CallsReportDTO["byUser"] }) {
+  const rows = [...byUser].sort((a, b) => b.count - a.count);
+  const max = rows[0]?.count ?? 0;
+
+  return (
+    <ChartCard title="Performance de l'équipe — appels par agent">
+      {rows.length === 0 ? (
+        <p className="text-sm text-ink-muted">Aucun appel sur la période.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => {
+            const name = row.user ? `${row.user.firstName ?? ""} ${row.user.lastName ?? ""}`.trim() || "—" : "—";
+            return (
+              <li key={row.userId} className="flex items-center gap-3 text-sm">
+                <span className="w-44 shrink-0 truncate text-ink">{name}</span>
+                <div className="h-2 flex-1 rounded-full bg-surface-subtle">
+                  <div className="h-2 rounded-full bg-forest-600" style={{ width: `${(row.count / max) * 100}%` }} />
+                </div>
+                <span className="w-12 text-right font-mono text-ink-muted">{row.count}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </ChartCard>
   );
 }
 

@@ -7,7 +7,7 @@ vi.mock("@/lib/api/emails", () => ({ createTemplate: vi.fn(), updateTemplate: vi
 const auth = vi.hoisted(() => ({ authedFetch: vi.fn() }));
 vi.mock("@/lib/auth/AuthContext", () => ({ useAuth: () => auth }));
 
-const VARIABLES = ["prenom_client", "nom_client", "adresse_client", "telephone_client", "nom_organisation", "date_rdv", "heure_rdv"];
+const VARIABLES = ["prenom_client", "nom_client", "adresse_client", "telephone_client", "nom_organisation", "nom_agent", "date_rdv", "heure_rdv", "lien_meet"];
 
 function renderWith(subject: string, body: string) {
   const template = { id: "t1", key: "k", label: "L", subject, body, isActive: true } as unknown as EmailTemplateDTO;

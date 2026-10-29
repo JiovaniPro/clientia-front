@@ -14,6 +14,7 @@ import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
+import { CustomFieldsSection } from "@/components/clients/CustomFieldsSection";
 import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
 import { SendEmailModal } from "@/components/clients/SendEmailModal";
 
@@ -312,6 +313,8 @@ export function ClientDetailView({ clientId }: { clientId: string }) {
           </Button>
         </div>
       </div>
+
+      <CustomFieldsSection clientId={client.id} />
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-5 shadow-flat">
         <h2 className="font-display text-lg font-semibold text-ink">Statut commercial final</h2>

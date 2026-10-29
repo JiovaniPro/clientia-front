@@ -68,6 +68,29 @@ export function setUserStatus(id: string, isActive: boolean, accessToken: string
   return apiClient.patch<UserListItemDTO>(`/users/${id}/status`, { isActive }, accessToken);
 }
 
+/** Suppression douce — le backend exige un compte déjà désactivé (409 sinon). */
+export function deleteUser(id: string, accessToken: string) {
+  return apiClient.delete<void>(`/users/${id}`, accessToken);
+}
+
+export interface DeletedUserDTO {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  deletedAt: string;
+  role: { id: string; name: string };
+}
+
+export function listDeletedUsers(accessToken: string) {
+  return apiClient.get<DeletedUserDTO[]>("/users/deleted", accessToken);
+}
+
+/** Définitif — appels, dossiers, RDV… passent à `transferToUserId` ; libère le rôle du compte. */
+export function purgeUser(id: string, transferToUserId: string, accessToken: string) {
+  return apiClient.delete<void>(`/users/${id}/permanent`, accessToken, { transferToUserId });
+}
+
 /** Déclenche l'envoi du lien à L'UTILISATEUR CIBLE — jamais un mot de passe visible ici. */
 export function resetPassword(id: string, accessToken: string) {
   return apiClient.post<void>(`/users/${id}/reset-password`, {}, accessToken);

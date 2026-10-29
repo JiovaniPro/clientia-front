@@ -62,3 +62,17 @@ export interface UpdateCustomFieldDefinitionInput {
 export function updateDefinition(id: string, input: UpdateCustomFieldDefinitionInput, accessToken: string) {
   return apiClient.patch<CustomFieldDefinitionDTO>(`/custom-fields/definitions/${id}`, input, accessToken);
 }
+
+/** Valeurs des champs ACTIFS d'une entité — forme brute JSON, interprétée selon `fieldType`. */
+export interface CustomFieldValueDTO {
+  definitionId: string;
+  value: unknown;
+}
+
+export function getValues(entityType: string, entityId: string, accessToken: string) {
+  return apiClient.get<CustomFieldValueDTO[]>(`/custom-fields/values/${entityType}/${entityId}`, accessToken);
+}
+
+export function setValues(entityType: string, entityId: string, values: CustomFieldValueDTO[], accessToken: string) {
+  return apiClient.put<CustomFieldValueDTO[]>(`/custom-fields/values/${entityType}/${entityId}`, { values }, accessToken);
+}

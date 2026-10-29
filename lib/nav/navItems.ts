@@ -12,6 +12,7 @@ import {
   ListChecks,
   Mail,
   Phone,
+  ScrollText,
   Shield,
   SlidersHorizontal,
   Users,
@@ -144,6 +145,13 @@ export const NAV_ITEMS: NavItem[] = [
     // individuelle ("mes statistiques", §5.17) est un écran séparé sur reports.view.
     permission: "reports.viewAll",
   },
+  {
+    href: "/admin/audit",
+    label: "Journal d'audit",
+    paletteLabel: "Aller au journal d'audit",
+    icon: ScrollText,
+    permission: "auditLog.view",
+  },
 ];
 
 export function isNavItemVisible(
@@ -215,11 +223,14 @@ export const AGENT_RDV_NAV_ITEMS: NavItem[] = [
  * nav. Exclu explicitement si l'appelant a en plus un droit d'administration
  * cross-utilisateurs (`clients.viewAll`/`users.view`) : l'Administrateur système a
  * TOUTES les permissions, y compris `calendar.manageAppointments`, et doit
- * continuer à voir la nav complète, pas la nav simplifiée.
+ * continuer à voir la nav complète, pas la nav simplifiée. Exclu aussi avec
+ * `calls.create` (propre au calliste, absent du rôle Agent RDV) : un Agent calliste
+ * à qui on a ajouté `calendar.manageAppointments` perdait sinon sa file "À appeler".
  */
 export function isAgentRdvNavProfile(hasPermission: (key: string) => boolean): boolean {
   return (
     hasPermission("calendar.manageAppointments") &&
+    !hasPermission("calls.create") &&
     !hasPermission("clients.viewAll") &&
     !hasPermission("users.view")
   );

@@ -15,7 +15,7 @@ import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
  * son mot de passe volontairement, pas seulement au premier login.
  */
 export default function PlatformChangePasswordPage() {
-  const { platformAdmin, authedFetch, setPlatformAdmin, logout } = usePlatformAuth();
+  const { platformAdmin, authedFetch, setPlatformAdmin } = usePlatformAuth();
   const router = useRouter();
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -100,11 +100,7 @@ export default function PlatformChangePasswordPage() {
 
         <div className="flex justify-between pt-2">
           {!platformAdmin?.mustChangePassword ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => logout().then(() => router.replace("/platform/login"))}
-            >
+            <Button type="button" variant="secondary" onClick={() => router.push("/platform/account")}>
               Annuler
             </Button>
           ) : (

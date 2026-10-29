@@ -6,9 +6,7 @@ import { EventPanel } from "./EventPanel";
 /** §6.25 lot D — garde sur EventPanel. */
 const api = vi.hoisted(() => ({
   addAttendee: vi.fn(),
-  createEventCategory: vi.fn(),
   createReminder: vi.fn(),
-  deleteEventCategory: vi.fn(),
 }));
 vi.mock("@/lib/api/calendar", () => ({
   ...api,
@@ -18,7 +16,6 @@ vi.mock("@/lib/api/calendar", () => ({
   deleteReminder: vi.fn(),
   getAgentAvailability: vi.fn().mockResolvedValue({ busyCount: 0 }),
   getEvent: vi.fn().mockResolvedValue({ attendees: [], conflicts: [] }),
-  listEventCategories: vi.fn().mockResolvedValue([{ id: "cat1", name: "Client", color: "#111" }]),
   listReminders: vi.fn().mockResolvedValue([]),
   removeAttendee: vi.fn(),
   resolveConflict: vi.fn(),
@@ -46,7 +43,7 @@ function renderPanel() {
   render(<EventPanel event={EVENT} calendarId="cal1" canDelete onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />);
   return { onClose };
 }
-const panelLoaded = () => screen.findByRole("option", { name: "Client" });
+const panelLoaded = () => screen.findByLabelText("Titre");
 const closeWays: Record<string, () => void> = {
   "×": () => fireEvent.click(screen.getAllByRole("button", { name: "Fermer" })[0]!),
   Échap: () => fireEvent.keyDown(window, { key: "Escape" }),
@@ -96,19 +93,6 @@ describe("§6.25 lot D — EventPanel", () => {
     expectGuard(onClose);
   });
 
-  it("nom de catégorie tapé : confirmation ; sous-formulaire refermé (« Annuler ») : abandon, fermeture directe", async () => {
-    const { onClose } = renderPanel();
-    await panelLoaded();
-    fireEvent.click(screen.getByRole("button", { name: "+ Nouvelle catégorie" }));
-    fireEvent.change(screen.getByLabelText("Nom"), { target: { value: "Prospects" } });
-    closeWays["×"]!();
-    expectGuard(onClose);
-
-    fireEvent.click(screen.getByRole("button", { name: "Continuer la modification" }));
-    fireEvent.click(within(screen.getByText("Catégorie").parentElement!).getByRole("button", { name: "Annuler" }));
-    closeWays["×"]!();
-    expectClosedDirectly(onClose);
-  });
 
   it("invité ajouté avec succès (déjà enregistré) : pas de fausse modification", async () => {
     api.addAttendee.mockResolvedValue({ id: "a1", email: "invite@exemple.com", name: null, userId: null, role: "REQUIRED", status: "PENDING" });
@@ -133,33 +117,22 @@ describe("§6.25 lot D — EventPanel", () => {
     expectClosedDirectly(onClose);
   });
 
-  it("suppression de la catégorie de l'événement (déjà enregistrée, le tag disparaît aussi côté serveur) : pas de fausse modification", async () => {
-    api.deleteEventCategory.mockResolvedValue(undefined);
-    const { onClose } = renderPanel();
+  it("rappel popup + e-mail cochés ensemble : un rappel créé par méthode", async () => {
+    api.createReminder.mockReset();
+    api.createReminder
+      .mockResolvedValueOnce({ id: "r1", minutesBefore: 15, method: "POPUP" })
+      .mockResolvedValueOnce({ id: "r2", minutesBefore: 15, method: "EMAIL" });
+    renderPanel();
     await panelLoaded();
-    fireEvent.click(screen.getByRole("button", { name: "Supprimer la catégorie" }));
-    fireEvent.click(within(screen.getByText("Supprimer cette catégorie").closest("div.rounded-lg") as HTMLElement).getByRole("button", { name: "Supprimer" }));
-    await vi.waitFor(() => expect(screen.getByLabelText("Catégorie")).toHaveValue(""));
-    closeWays["×"]!();
-    expectClosedDirectly(onClose);
-  });
-
-  it("catégorie créée : la création ne compte pas, mais sa sélection automatique sur l'événement (non enregistrée) oui", async () => {
-    api.createEventCategory.mockResolvedValue({ id: "cat2", name: "Prospects", color: "#c2410c" });
-    const { onClose } = renderPanel();
-    await panelLoaded();
-    fireEvent.click(screen.getByRole("button", { name: "+ Nouvelle catégorie" }));
-    fireEvent.change(screen.getByLabelText("Nom"), { target: { value: "Prospects" } });
-    fireEvent.click(screen.getByRole("button", { name: "Créer" }));
-    await vi.waitFor(() => expect(screen.getByLabelText("Catégorie")).toHaveValue("cat2"));
-    closeWays["×"]!();
-    expectGuard(onClose);
-
-    // Revenir à la catégorie d'origine : la garde ne se déclenche plus (la création seule ne compte pas).
-    fireEvent.click(screen.getByRole("button", { name: "Continuer la modification" }));
-    fireEvent.change(screen.getByLabelText("Catégorie"), { target: { value: "cat1" } });
-    closeWays["×"]!();
-    expectClosedDirectly(onClose);
+    fireEvent.change(await screen.findByLabelText("Minutes avant"), { target: { value: "15" } });
+    fireEvent.click(screen.getByLabelText("E-mail"));
+    fireEvent.click(screen.getByRole("button", { name: "Ajouter" }));
+    await screen.findByText("15 min avant · E-mail");
+    expect(screen.getByText("15 min avant · Popup (application)")).toBeInTheDocument();
+    expect(api.createReminder.mock.calls.map((c) => c[1])).toEqual([
+      { minutesBefore: 15, method: "POPUP" },
+      { minutesBefore: 15, method: "EMAIL" },
+    ]);
   });
 
   it("lecture seule : jamais de confirmation, quelle que soit l'interaction", async () => {
@@ -168,7 +141,6 @@ describe("§6.25 lot D — EventPanel", () => {
     await panelLoaded();
     expect(screen.getByLabelText("Titre")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Titre"), { target: { value: "Forcé" } });
-    fireEvent.change(screen.getByLabelText("Catégorie"), { target: { value: "" } });
     for (const close of Object.values(closeWays)) close();
     expect(onClose).toHaveBeenCalledTimes(4);
     expect(screen.queryByText(GUARD_TITLE)).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Plus } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -9,7 +9,6 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { WaveBadge } from "@/components/calls/WaveBadge";
 import { QualifyCallModal } from "@/components/calls/QualifyCallModal";
-import { NewCallModal } from "@/components/calls/NewCallModal";
 import { ImportCallsModal } from "@/components/calls/ImportCallsModal";
 import type { CallDTO, CallType, ListCallsFilters } from "@/lib/api/calls";
 import { deleteCall, listCalls, reassignCall, reassignCalls } from "@/lib/api/calls";
@@ -51,7 +50,6 @@ export default function CallsPage() {
   const [search, setSearch] = useState("");
 
   const [qualifyingCall, setQualifyingCall] = useState<CallDTO | null>(null);
-  const [showNewCallModal, setShowNewCallModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CallDTO | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -182,8 +180,8 @@ export default function CallsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-8">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl space-y-5 p-8">
+      <header className="flex items-start justify-between gap-6">
         <div>
           <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.5</p>
           <h1 className="font-display text-2xl font-bold text-ink">À appeler</h1>
@@ -192,14 +190,10 @@ export default function CallsPage() {
             rejoint le Journal.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2 whitespace-nowrap">
           <Button variant="secondary" onClick={() => setShowImportModal(true)}>
             <Download size={16} className="mr-1.5" />
             Importer
-          </Button>
-          <Button onClick={() => setShowNewCallModal(true)}>
-            <Plus size={16} className="mr-1.5" />
-            Nouvel appel
           </Button>
         </div>
       </header>
@@ -265,7 +259,7 @@ export default function CallsPage() {
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-border bg-surface shadow-flat">
+      <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
           <p className="p-6 text-sm text-status-danger">{error}</p>
         ) : isLoading ? (
@@ -273,102 +267,111 @@ export default function CallsPage() {
         ) : calls.length === 0 ? (
           <p className="p-6 text-sm text-ink-muted">Aucun appel ne correspond à ces filtres.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
-                {canReassign ? (
-                  <th className="w-10 px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      aria-label="Tout sélectionner sur cette page"
-                      checked={allOnPageSelected}
-                      onChange={() =>
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          for (const c of calls) {
-                            if (allOnPageSelected) next.delete(c.id);
-                            else next.add(c.id);
-                          }
-                          return next;
-                        })
-                      }
-                    />
-                  </th>
-                ) : null}
-                <th className="px-4 py-2.5 font-medium">Vague</th>
-                <th className="px-4 py-2.5 font-medium">Contact</th>
-                <th className="px-4 py-2.5 font-medium">Téléphone</th>
-                <th className="px-4 py-2.5 font-medium">Type</th>
-                <th className="px-4 py-2.5 font-medium">Statut</th>
-                <th className="px-4 py-2.5 font-medium">Le</th>
-                {canReassign ? <th className="px-4 py-2.5 font-medium">Agent</th> : null}
-                <th className="px-4 py-2.5 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((call) => (
-                <tr key={call.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+          <div className="overflow-x-auto">
+            <table className="w-full whitespace-nowrap text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
                   {canReassign ? (
-                    <td className="px-4 py-2.5">
+                    <th className="w-10 px-3 py-2.5">
                       <input
                         type="checkbox"
-                        aria-label={`Sélectionner l'appel ${call.toNumber}`}
-                        checked={selectedIds.has(call.id)}
-                        onChange={() => toggleSelected(call.id)}
+                        aria-label="Tout sélectionner sur cette page"
+                        checked={allOnPageSelected}
+                        onChange={() =>
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            for (const c of calls) {
+                              if (allOnPageSelected) next.delete(c.id);
+                              else next.add(c.id);
+                            }
+                            return next;
+                          })
+                        }
                       />
-                    </td>
+                    </th>
                   ) : null}
-                  <td className="px-4 py-2.5">
-                    <WaveBadge waveNumber={call.waveNumber} />
-                  </td>
-                  <td className="px-4 py-2.5 text-ink">
-                    {call.firstName || call.lastName ? `${call.firstName ?? ""} ${call.lastName ?? ""}`.trim() : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-forest-600">{call.toNumber}</td>
-                  <td className="px-4 py-2.5 text-ink-muted">{call.type}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge label={call.status.label} color={call.status.color} />
-                  </td>
-                  <td className="px-4 py-2.5 text-ink-muted">{formatOccurredAt(call.occurredAt)}</td>
-                  {canReassign ? (
-                    <td className="px-4 py-2.5">
-                      <Select
-                        aria-label={`Agent de l'appel ${call.toNumber}`}
-                        value={call.userId}
-                        disabled={isReassigning}
-                        onChange={(e) => handleReassign([call.id], e.target.value)}
-                        className="w-44"
-                      >
-                        {/* Propriétaire actuel hors des agents callistes (ex. l'admin qui a importé) : affiché, pas re-sélectionnable. */}
-                        {agents.some((a) => a.id === call.userId) ? null : (
-                          <option value={call.userId} disabled>
-                            {call.user ? fullName(call.user) : "—"}
-                          </option>
-                        )}
-                        {agents.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {fullName(a)}
-                          </option>
-                        ))}
-                      </Select>
-                    </td>
-                  ) : null}
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => setQualifyingCall(call)}>
-                        Qualifier
-                      </Button>
-                      {canDelete ? (
-                        <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(call)}>
-                          Supprimer
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
+                  <th className="px-3 py-2.5 font-medium">Vague</th>
+                  <th className="px-3 py-2.5 font-medium">Contact</th>
+                  <th className="px-3 py-2.5 font-medium">Téléphone</th>
+                  <th className="px-3 py-2.5 font-medium">Type</th>
+                  <th className="px-3 py-2.5 font-medium">Statut</th>
+                  <th className="px-3 py-2.5 font-medium">Le</th>
+                  {canReassign ? <th className="px-3 py-2.5 font-medium">Agent</th> : null}
+                  <th className="px-3 py-2.5 font-medium" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {calls.map((call) => (
+                  <tr key={call.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+                    {canReassign ? (
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`Sélectionner l'appel ${call.toNumber}`}
+                          checked={selectedIds.has(call.id)}
+                          onChange={() => toggleSelected(call.id)}
+                        />
+                      </td>
+                    ) : null}
+                    <td className="px-3 py-2.5">
+                      <WaveBadge waveNumber={call.waveNumber} />
+                    </td>
+                    <td className="px-3 py-2.5 text-ink">
+                      {call.firstName || call.lastName ? `${call.firstName ?? ""} ${call.lastName ?? ""}`.trim() : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-forest-600">{call.toNumber}</td>
+                    <td className="px-3 py-2.5 text-xs text-ink-muted">{call.type}</td>
+                    <td className="px-3 py-2.5">
+                      <StatusBadge label={call.status.label} color={call.status.color} />
+                    </td>
+                    <td className="px-3 py-2.5 text-ink-muted">{formatOccurredAt(call.occurredAt)}</td>
+                    {canReassign ? (
+                      <td className="px-3 py-2.5">
+                        <Select
+                          aria-label={`Agent de l'appel ${call.toNumber}`}
+                          value={call.userId}
+                          disabled={isReassigning}
+                          onChange={(e) => handleReassign([call.id], e.target.value)}
+                          className="w-40"
+                        >
+                          {/* Propriétaire actuel hors des agents callistes (ex. l'admin qui a importé) : affiché, pas re-sélectionnable. */}
+                          {agents.some((a) => a.id === call.userId) ? null : (
+                            <option value={call.userId} disabled>
+                              {call.user ? fullName(call.user) : "—"}
+                            </option>
+                          )}
+                          {agents.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {fullName(a)}
+                            </option>
+                          ))}
+                        </Select>
+                      </td>
+                    ) : null}
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => setQualifyingCall(call)}>
+                          Qualifier
+                        </Button>
+                        {canDelete ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label="Supprimer"
+                            title="Supprimer cet appel"
+                            className="text-ink-muted hover:text-status-danger"
+                            onClick={() => setDeleteTarget(call)}
+                          >
+                            <Trash2 size={16} />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-ink-muted">
@@ -399,17 +402,6 @@ export default function CallsPage() {
         />
       ) : null}
 
-      {showNewCallModal ? (
-        <NewCallModal
-          statuses={statuses}
-          onClose={() => setShowNewCallModal(false)}
-          onCreated={() => {
-            setShowNewCallModal(false);
-            fetchCalls();
-          }}
-        />
-      ) : null}
-
       {deleteTarget ? (
         <ConfirmModal
           title="Supprimer cet appel"
@@ -427,7 +419,11 @@ export default function CallsPage() {
       ) : null}
 
       {showImportModal ? (
-        <ImportCallsModal onClose={() => setShowImportModal(false)} onImported={fetchCalls} />
+        <ImportCallsModal
+          onClose={() => setShowImportModal(false)}
+          onImported={fetchCalls}
+          agents={canReassign ? agents : undefined}
+        />
       ) : null}
     </div>
   );

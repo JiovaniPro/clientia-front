@@ -32,7 +32,6 @@ vi.mock("@/lib/api/calendar", () => ({
   listCalendars: vi.fn().mockResolvedValue([{ id: "cal1", userId: "u1" }]),
   createCalendar: vi.fn(),
   listEvents: vi.fn().mockResolvedValue([]),
-  listEventCategories: vi.fn().mockResolvedValue([]),
   getEvent: vi.fn().mockResolvedValue({ attendees: [], conflicts: [] }),
   listReminders: vi.fn().mockResolvedValue([]),
   updateEvent: vi.fn(),

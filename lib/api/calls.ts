@@ -141,12 +141,16 @@ export function getCall(id: string, accessToken: string) {
 export interface ImportCallsResponse {
   waveNumber: number;
   count: number;
+  /** Propriétaire des leads créés : l'agent choisi par l'admin, sinon celui qui importe. */
+  userId: string;
 }
 
-export async function importCalls(file: File, accessToken: string): Promise<ImportCallsResponse> {
+/** `assigneeId` : admin (calls.viewAll) uniquement — les leads arrivent directement dans la file de cet agent. */
+export async function importCalls(file: File, accessToken: string, assigneeId?: string): Promise<ImportCallsResponse> {
   const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   const formData = new FormData();
   formData.append("file", file);
+  if (assigneeId) formData.append("assigneeId", assigneeId);
 
   const res = await fetch(`${API_URL}/calls/import`, {
     method: "POST",

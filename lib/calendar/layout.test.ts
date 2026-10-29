@@ -10,6 +10,7 @@ function makeEvent(id: string, startHM: string, endHM: string): CalendarEventDTO
     title: id,
     description: null,
     location: null,
+    meetLink: null,
     startAt: `2026-09-01T${startHM}:00.000Z`,
     endAt: `2026-09-01T${endHM}:00.000Z`,
     timezone: "Europe/Paris",

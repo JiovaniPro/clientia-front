@@ -5,12 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDate, PlatformNotice, PlatformPage, PlatformPageHeader } from "@/components/platform/PlatformPage";
+import { DeleteOrganizationModal } from "@/components/platform/DeleteOrganizationModal";
 import { OrganizationFormModal } from "@/components/platform/OrganizationFormModal";
 import { ApiError } from "@/lib/api/client";
 import type { PlatformOrganizationDetailDTO, PlatformOrganizationSummaryDTO } from "@/lib/api/platformOrganizations";
-import { listOrganizations, setOrganizationStatus } from "@/lib/api/platformOrganizations";
+import { deleteOrganization, listOrganizations, setOrganizationStatus } from "@/lib/api/platformOrganizations";
 import { usePlatformAuth } from "@/lib/auth/PlatformAuthContext";
 
 /**
@@ -35,6 +37,10 @@ export default function PlatformOrganizationsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<PlatformOrganizationSummaryDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PlatformOrganizationSummaryDTO | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const statusFilter = (useSearchParams().get("statut") ?? "toutes") as StatusFilter;
 
   const fetchAll = useCallback(async () => {
@@ -75,6 +81,34 @@ export default function PlatformOrganizationsPage() {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
       setPendingId(null);
+      setSuspendTarget(null);
+    }
+  }
+
+  /** Comme sur le détail : seule la suspension passe par une confirmation (§6.27). */
+  function handleToggleStatusClick(org: PlatformOrganizationSummaryDTO) {
+    if (org.isActive) {
+      setSuspendTarget(org);
+    } else {
+      handleToggleStatus(org);
+    }
+  }
+
+  async function handleDelete(confirmName: string) {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    setNotice(null);
+    setIsDeleting(true);
+    try {
+      const deleted = await authedFetch((token) => deleteOrganization(deleteTarget.id, confirmName, token));
+      // Une organisation supprimée quitte cette liste (elle vit dans /platform/organizations/deleted).
+      setOrganizations((prev) => prev.filter((o) => o.id !== deleted.id));
+      setDeleteTarget(null);
+      setNotice(`« ${deleted.name} » supprimée — plus aucun accès possible, données conservées.`);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -123,15 +157,32 @@ export default function PlatformOrganizationsPage() {
       header: "",
       className: "text-right",
       cell: (org) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className={org.isActive ? "text-status-danger hover:text-status-danger" : undefined}
-          onClick={() => handleToggleStatus(org)}
-          disabled={pendingId === org.id}
-        >
-          {org.isActive ? "Suspendre" : "Réactiver"}
-        </Button>
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={org.isActive ? "text-status-danger hover:text-status-danger" : undefined}
+            onClick={() => handleToggleStatusClick(org)}
+            disabled={pendingId === org.id}
+          >
+            {org.isActive ? "Suspendre" : "Réactiver"}
+          </Button>
+          {/* Seule une organisation suspendue peut être supprimée (règle backend). */}
+          {org.isActive ? null : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-status-danger hover:text-status-danger"
+              onClick={() => {
+                setDeleteError(null);
+                setDeleteTarget(org);
+              }}
+              disabled={pendingId === org.id}
+            >
+              Supprimer
+            </Button>
+          )}
+        </div>
       ),
     },
   ];
@@ -183,6 +234,28 @@ export default function PlatformOrganizationsPage() {
         isLoading={isLoading}
         emptyMessage={statusFilter === "suspendues" ? "Aucune organisation suspendue." : "Aucune organisation."}
       />
+
+      {suspendTarget ? (
+        <ConfirmModal
+          title="Suspendre cette organisation"
+          message={`Suspendre « ${suspendTarget.name} » ? ${suspendTarget._count.users} utilisateur${suspendTarget._count.users > 1 ? "s" : ""} actif${suspendTarget._count.users > 1 ? "s" : ""} ${suspendTarget._count.users > 1 ? "perdront" : "perdra"} l'accès immédiatement et leurs sessions en cours seront révoquées.`}
+          confirmLabel="Suspendre"
+          onConfirm={() => handleToggleStatus(suspendTarget)}
+          onClose={() => setSuspendTarget(null)}
+          isConfirming={pendingId === suspendTarget.id}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteOrganizationModal
+          organizationName={deleteTarget.name}
+          userCount={deleteTarget._count.users}
+          onConfirm={handleDelete}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={isDeleting}
+          error={deleteError}
+        />
+      ) : null}
 
       {isModalOpen ? <OrganizationFormModal onClose={() => setIsModalOpen(false)} onSaved={handleCreated} /> : null}
     </PlatformPage>

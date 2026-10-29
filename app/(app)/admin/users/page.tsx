@@ -8,20 +8,23 @@ import { UserFormModal } from "@/components/admin/UserFormModal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { RoleListItemDTO } from "@/lib/api/roles";
 import { listRoles } from "@/lib/api/roles";
-import type { UserListItemDTO } from "@/lib/api/users";
-import { listUsers, resetPassword, setUserStatus } from "@/lib/api/users";
+import { Select } from "@/components/ui/Select";
+import type { DeletedUserDTO, UserListItemDTO } from "@/lib/api/users";
+import { deleteUser, listDeletedUsers, listUsers, purgeUser, resetPassword, setUserStatus } from "@/lib/api/users";
+import { cn } from "@/lib/cn";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 
-function personLabel(u: UserListItemDTO) {
+function personLabel(u: { firstName: string | null; lastName: string | null; email: string }) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
 /**
  * Sous-lot Utilisateurs — CRUD complet (§2.2) : création/édition sans jamais taper
- * de mot de passe (lien envoyé par e-mail), activer/désactiver (jamais de
- * suppression physique — deux garde-fous vérifiés côté backend, affichés ici tels
- * que le serveur les formule, pas re-devinés côté client).
+ * de mot de passe (lien envoyé par e-mail), activer/désactiver (deux garde-fous
+ * vérifiés côté backend, affichés ici tels que le serveur les formule, pas
+ * re-devinés côté client), puis supprimer un compte déjà désactivé (suppression
+ * douce côté backend — l'historique garde ses liens).
  */
 export default function AdminUsersPage() {
   const { authedFetch, user: currentUser } = useAuth();
@@ -35,6 +38,12 @@ export default function AdminUsersPage() {
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; user: UserListItemDTO } | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<UserListItemDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserListItemDTO | null>(null);
+
+  const [tab, setTab] = useState<"active" | "deleted">("active");
+  const [deletedUsers, setDeletedUsers] = useState<DeletedUserDTO[]>([]);
+  const [purgeTarget, setPurgeTarget] = useState<DeletedUserDTO | null>(null);
+  const [transferToUserId, setTransferToUserId] = useState("");
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -47,6 +56,18 @@ export default function AdminUsersPage() {
       setIsLoading(false);
     }
   }, [authedFetch]);
+
+  const fetchDeletedUsers = useCallback(async () => {
+    try {
+      setDeletedUsers(await authedFetch((token) => listDeletedUsers(token)));
+    } catch {
+      setError("Impossible de charger les utilisateurs supprimés.");
+    }
+  }, [authedFetch]);
+
+  useEffect(() => {
+    if (tab === "deleted") fetchDeletedUsers();
+  }, [tab, fetchDeletedUsers]);
 
   useEffect(() => {
     fetchUsers();
@@ -92,6 +113,39 @@ export default function AdminUsersPage() {
       setDeactivateTarget(target);
     } else {
       handleToggleStatus(target);
+    }
+  }
+
+  async function handleDelete(target: UserListItemDTO) {
+    setError(null);
+    setNotice(null);
+    setPendingActionId(target.id);
+    try {
+      await authedFetch((token) => deleteUser(target.id, token));
+      setUsers((prev) => prev.filter((u) => u.id !== target.id));
+      setNotice(`${personLabel(target)} supprimé.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setPendingActionId(null);
+      setDeleteTarget(null);
+    }
+  }
+
+  async function handlePurge(target: DeletedUserDTO) {
+    setError(null);
+    setNotice(null);
+    setPendingActionId(target.id);
+    try {
+      await authedFetch((token) => purgeUser(target.id, transferToUserId, token));
+      setDeletedUsers((prev) => prev.filter((u) => u.id !== target.id));
+      const heir = users.find((u) => u.id === transferToUserId);
+      setNotice(`${personLabel(target)} supprimé définitivement — son historique a été transféré à ${heir ? personLabel(heir) : "l'utilisateur choisi"}.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
+    } finally {
+      setPendingActionId(null);
+      setPurgeTarget(null);
     }
   }
 
@@ -163,11 +217,51 @@ export default function AdminUsersPage() {
             >
               {u.isActive ? "Désactiver" : "Activer"}
             </button>
+            {u.isActive ? null : (
+              <button
+                type="button"
+                className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
+                onClick={() => setDeleteTarget(u)}
+                disabled={isPending}
+              >
+                Supprimer
+              </button>
+            )}
           </div>
         );
       },
     },
   ];
+
+  const deletedColumns: AdminTableColumn<DeletedUserDTO>[] = [
+    { header: "Nom", className: "text-ink", cell: (u) => personLabel(u) },
+    { header: "E-mail", className: "text-ink-muted", cell: (u) => u.email },
+    { header: "Rôle", className: "text-ink-muted", cell: (u) => u.role.name },
+    {
+      header: "Supprimé le",
+      className: "text-ink-muted",
+      cell: (u) => new Date(u.deletedAt).toLocaleDateString("fr-FR"),
+    },
+    {
+      header: "",
+      className: "text-right",
+      cell: (u) => (
+        <button
+          type="button"
+          className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
+          onClick={() => {
+            setTransferToUserId(currentUser?.id ?? "");
+            setPurgeTarget(u);
+          }}
+          disabled={pendingActionId === u.id}
+        >
+          Supprimer définitivement
+        </button>
+      ),
+    },
+  ];
+
+  const activeHeirs = users.filter((u) => u.isActive);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-8">
@@ -190,7 +284,38 @@ export default function AdminUsersPage() {
         </p>
       ) : null}
 
-      <AdminTable columns={columns} rows={users} rowKey={(u) => u.id} isLoading={isLoading} emptyMessage="Aucun utilisateur." />
+      <div className="flex gap-1 border-b border-border">
+        {(
+          [
+            ["active", "Utilisateurs"],
+            ["deleted", "Supprimés"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              "px-3 py-2 text-sm font-medium border-b-2 -mb-px",
+              tab === key ? "border-forest-600 text-ink" : "border-transparent text-ink-muted hover:text-ink",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "active" ? (
+        <AdminTable columns={columns} rows={users} rowKey={(u) => u.id} isLoading={isLoading} emptyMessage="Aucun utilisateur." />
+      ) : (
+        <AdminTable
+          columns={deletedColumns}
+          rows={deletedUsers}
+          rowKey={(u) => u.id}
+          isLoading={false}
+          emptyMessage="Aucun utilisateur supprimé."
+        />
+      )}
 
       {modal ? (
         <UserFormModal
@@ -209,6 +334,46 @@ export default function AdminUsersPage() {
           onConfirm={() => handleToggleStatus(deactivateTarget)}
           onClose={() => setDeactivateTarget(null)}
           isConfirming={pendingActionId === deactivateTarget.id}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Supprimer ce compte"
+          message={`Supprimer définitivement le compte de ${personLabel(deleteTarget)} ? Il ne pourra plus être réactivé. Ses appels, dossiers et son historique sont conservés.`}
+          confirmLabel="Supprimer"
+          onConfirm={() => handleDelete(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          isConfirming={pendingActionId === deleteTarget.id}
+        />
+      ) : null}
+
+      {purgeTarget ? (
+        <ConfirmModal
+          title="Supprimer définitivement"
+          message={
+            <div className="space-y-3">
+              <p>
+                Effacer définitivement le compte de {personLabel(purgeTarget)} ? Ses appels, dossiers, rendez-vous,
+                rappels, calendriers et e-mails seront transférés à l&apos;utilisateur choisi ci-dessous. Irréversible.
+              </p>
+              <Select
+                label="Transférer l'historique à"
+                value={transferToUserId}
+                onChange={(e) => setTransferToUserId(e.target.value)}
+              >
+                {activeHeirs.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {personLabel(u)} — {u.role.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          }
+          confirmLabel="Supprimer définitivement"
+          onConfirm={() => handlePurge(purgeTarget)}
+          onClose={() => setPurgeTarget(null)}
+          isConfirming={pendingActionId === purgeTarget.id}
         />
       ) : null}
     </div>

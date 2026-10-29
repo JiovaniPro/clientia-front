@@ -27,6 +27,7 @@ const TEMPLATE_VARIABLES = [
   { name: "adresse_client", description: "Adresse du client" },
   { name: "telephone_client", description: "Téléphone du client" },
   { name: "nom_organisation", description: "Nom de votre organisation" },
+  { name: "nom_agent", description: "Nom de l'agent RDV — vide si aucun agent n'est assigné ou en envoi manuel" },
   {
     name: "date_rdv",
     description: "Date du rendez-vous — e-mails automatiques liés à un RDV uniquement ; vide en envoi manuel depuis un dossier",
@@ -34,6 +35,10 @@ const TEMPLATE_VARIABLES = [
   {
     name: "heure_rdv",
     description: "Heure du rendez-vous — e-mails automatiques liés à un RDV uniquement ; vide en envoi manuel depuis un dossier",
+  },
+  {
+    name: "lien_meet",
+    description: "Lien Google Meet du rendez-vous — vide si le RDV n'a pas de visio",
   },
 ] as const;
 

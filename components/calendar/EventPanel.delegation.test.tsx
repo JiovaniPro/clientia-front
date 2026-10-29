@@ -14,13 +14,10 @@ vi.mock("@/lib/api/calendar", () => ({
   ...api,
   addAttendee: vi.fn(),
   createEvent: vi.fn(),
-  createEventCategory: vi.fn(),
   createReminder: vi.fn(),
   deleteEvent: vi.fn(),
-  deleteEventCategory: vi.fn(),
   deleteReminder: vi.fn(),
   getAgentAvailability: vi.fn().mockResolvedValue({ busyCount: 0 }),
-  listEventCategories: vi.fn().mockResolvedValue([]),
   listReminders: vi.fn().mockResolvedValue([]),
   removeAttendee: vi.fn(),
   resolveConflict: vi.fn(),
@@ -72,14 +69,25 @@ beforeEach(() => {
 });
 
 describe("délégation RDV — EventPanel", () => {
-  it("admin (calendar.viewAll), ni organisateur ni agent : voit Confirmer, Refuser et Déléguer", async () => {
+  it("admin (calendar.viewAll), ni organisateur ni agent : Déléguer seulement — confirmer/refuser revient à l'agent RDV", async () => {
     currentUser = { id: "admin" };
     permissions = ADMIN_PERMS;
     renderPanel();
     await agentsLoaded();
-    expect(queryButton("Confirmer")).toBeInTheDocument();
-    expect(queryButton("Refuser")).toBeInTheDocument();
+    expect(queryButton("Confirmer")).not.toBeInTheDocument();
+    expect(queryButton("Refuser")).not.toBeInTheDocument();
     expect(queryButton("Déléguer")).toBeInTheDocument();
+    expect(screen.getByText(/lui seul peut confirmer ou refuser/)).toBeInTheDocument();
+  });
+
+  it("calliste organisateur du RDV, même avec calendar.manageAppointments : ni Confirmer ni Refuser", async () => {
+    currentUser = { id: "org" };
+    permissions = AGENT_RDV_PERMS;
+    renderPanel();
+    await agentsLoaded();
+    expect(queryButton("Confirmer")).not.toBeInTheDocument();
+    expect(queryButton("Refuser")).not.toBeInTheDocument();
+    expect(screen.getByText(/lui seul peut confirmer ou refuser/)).toBeInTheDocument();
   });
 
   it("sans viewAll et sans lien avec le RDV : aucun bouton (comme le backend)", async () => {

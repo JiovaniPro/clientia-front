@@ -98,6 +98,9 @@ export interface SendEmailInput {
   templateKey: string;
   appointmentEventId?: string;
   variables?: Record<string, string>;
+  /** Envoi uniquement — objet/corps retouchés par l'agent après l'aperçu. */
+  subject?: string;
+  body?: string;
 }
 
 export interface EmailPreviewDTO {

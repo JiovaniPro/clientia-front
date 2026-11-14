@@ -2,8 +2,11 @@
 
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { ActiveFilters, type ActiveFilter } from "@/components/ui/ActiveFilters";
 import { Button } from "@/components/ui/Button";
+import { EmptyState, LoadError, TableSkeleton } from "@/components/ui/ListStates";
 import { Select } from "@/components/ui/Select";
+import { cn } from "@/lib/cn";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ReminderFormModal } from "@/components/reminders/ReminderFormModal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -12,6 +15,7 @@ import { deleteReminder, listReminders } from "@/lib/api/reminders";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 /**
  * §5.9 (personnel) + §5.19 (supervision). `reminders.viewAll` ajoute la vue
@@ -57,6 +61,8 @@ export default function RemindersPage() {
   const [modal, setModal] = useState<"create" | ReminderDTO | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReminderDTO | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  /** Échec d'une suppression : bandeau, la liste reste affichée (distinct d'une erreur de chargement). */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchReminders = useCallback(async () => {
     setIsLoading(true);
@@ -92,23 +98,44 @@ export default function RemindersPage() {
 
   async function handleDelete(reminder: ReminderDTO) {
     setIsDeleting(true);
+    setActionError(null);
     try {
       await authedFetch((token) => deleteReminder(reminder.id, token));
       fetchReminders();
     } catch {
-      setError("Impossible de supprimer ce rappel.");
+      setActionError("Impossible de supprimer ce rappel.");
     } finally {
       setIsDeleting(false);
       setDeleteTarget(null);
     }
   }
 
+  function resetFilters() {
+    setStatusFilter("");
+    setAgentId("");
+  }
+
+  const selectedAgent = agents.find((a) => a.id === agentId);
+  const activeFilters: ActiveFilter[] = [
+    ...(statusFilter
+      ? [{ key: "status", label: `Statut : ${STATUS_LABELS[statusFilter]}`, onRemove: () => setStatusFilter("") }]
+      : []),
+    ...(agentId
+      ? [
+          {
+            key: "agent",
+            label: `Agent : ${selectedAgent ? personLabel(selectedAgent, selectedAgent.email) : "—"}`,
+            onRemove: () => setAgentId(""),
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header className="flex items-center justify-between">
         <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.9</p>
-          <h1 className="font-display text-2xl font-bold text-ink">{canViewAll ? "Rappels" : "Mes rappels"}</h1>
+          <PageTitle parent="Agenda">{canViewAll ? "Rappels" : "Mes rappels"}</PageTitle>
         </div>
         {canCreate ? (
           <Button onClick={() => setModal("create")}>
@@ -144,6 +171,14 @@ export default function RemindersPage() {
         ) : null}
       </div>
 
+      <ActiveFilters filters={activeFilters} onReset={resetFilters} />
+
+      {actionError ? (
+        <p role="alert" className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
+          {actionError}
+        </p>
+      ) : null}
+
       {canViewAll ? (
         <p className="text-xs text-ink-muted">
           Les pense-bêtes personnels des autres utilisateurs (sans appel ou dossier rattaché) ne sont jamais visibles
@@ -153,13 +188,34 @@ export default function RemindersPage() {
 
       <div className="rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
-          <p className="p-6 text-sm text-status-danger">{error}</p>
-        ) : isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
+          <LoadError message={error} onRetry={fetchReminders} />
+        ) : isLoading && reminders.length === 0 ? (
+          <TableSkeleton columns={canViewAll ? 5 : 4} rows={5} />
         ) : reminders.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucun rappel ne correspond à ces filtres.</p>
+          activeFilters.length > 0 ? (
+            <EmptyState
+              title="Aucun rappel ne correspond à ces filtres."
+              action={
+                <Button size="sm" variant="secondary" onClick={resetFilters}>
+                  Réinitialiser les filtres
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="Aucun rappel pour l'instant."
+              description="Un rappel est créé automatiquement quand un appel est qualifié avec une date de rappel ; vous pouvez aussi en ajouter à la main."
+              action={
+                canCreate ? (
+                  <Button size="sm" onClick={() => setModal("create")}>
+                    <Plus size={14} aria-hidden /> Nouveau rappel
+                  </Button>
+                ) : undefined
+              }
+            />
+          )
         ) : (
-          <table className="w-full text-sm">
+          <table className={cn("w-full text-sm transition-opacity", isLoading && "opacity-60")} aria-busy={isLoading}>
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Titre</th>

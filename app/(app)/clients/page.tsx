@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DeleteClientDialog } from "@/components/clients/DeleteClientDialog";
-import { Button } from "@/components/ui/Button";
+import { ActiveFilters, type ActiveFilter } from "@/components/ui/ActiveFilters";
+import { Button, buttonClassName } from "@/components/ui/Button";
+import { CLICKABLE_ROW_CLASS, clickableRowProps } from "@/components/ui/clickableRow";
 import { Input } from "@/components/ui/Input";
+import { EmptyState, LoadError, TableSkeleton } from "@/components/ui/ListStates";
+import { cn } from "@/lib/cn";
 import { Select } from "@/components/ui/Select";
+import { PhoneLink } from "@/components/ui/PhoneLink";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { ClientListItemDTO, ListClientsFilters } from "@/lib/api/clients";
 import { listClients } from "@/lib/api/clients";
@@ -14,6 +20,7 @@ import { getConfigurableList } from "@/lib/api/configurableLists";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 const PAGE_SIZE = 25;
 
@@ -31,6 +38,7 @@ function personLabel(p: { firstName: string | null; lastName: string | null } | 
  */
 export default function ClientsPage() {
   const { authedFetch, hasPermission } = useAuth();
+  const router = useRouter();
   const canDelete = hasPermission("clients.delete");
 
   const [dossierStatuses, setDossierStatuses] = useState<ConfigurableListItemDTO[]>([]);
@@ -48,6 +56,8 @@ export default function ClientsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  /** Incrémenté par "Réessayer" quand c'est le chargement des listes de statuts ou des agents qui a échoué. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const timeout = setTimeout(() => setSearch(searchInput), 350);
@@ -68,7 +78,7 @@ export default function ClientsPage() {
     authedFetch((token) => listUsers({ role: "Agent RDV" }, token))
       .then(setAgents)
       .catch(() => setError("Impossible de charger la liste des agents."));
-  }, [authedFetch]);
+  }, [authedFetch, reloadKey]);
 
   const fetchClients = useCallback(async () => {
     setIsLoading(true);
@@ -102,11 +112,50 @@ export default function ClientsPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  function retry() {
+    setError(null);
+    if (dossierStatuses.length === 0 || agents.length === 0) setReloadKey((k) => k + 1);
+    fetchClients();
+  }
+
+  function resetFilters() {
+    setDossierStatusKey("");
+    setFinalStatusKey("");
+    setAgentId("");
+    setSearchInput("");
+    setSearch("");
+  }
+
+  const selectedAgent = agents.find((a) => a.id === agentId);
+  const activeFilters: ActiveFilter[] = [
+    ...(search ? [{ key: "search", label: `Recherche : ${search}`, onRemove: () => setSearchInput("") }] : []),
+    ...(dossierStatusKey
+      ? [
+          {
+            key: "dossier",
+            label: `Statut dossier : ${dossierStatuses.find((s) => s.key === dossierStatusKey)?.label ?? dossierStatusKey}`,
+            onRemove: () => setDossierStatusKey(""),
+          },
+        ]
+      : []),
+    ...(finalStatusKey
+      ? [
+          {
+            key: "final",
+            label: `Statut final : ${finalStatuses.find((s) => s.key === finalStatusKey)?.label ?? finalStatusKey}`,
+            onRemove: () => setFinalStatusKey(""),
+          },
+        ]
+      : []),
+    ...(agentId
+      ? [{ key: "agent", label: `Agent : ${selectedAgent ? personLabel(selectedAgent) : "—"}`, onRemove: () => setAgentId("") }]
+      : []),
+  ];
+
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.7</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Mes dossiers clients</h1>
+        <PageTitle parent="Clients">Mes dossiers clients</PageTitle>
       </header>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4 shadow-flat">
@@ -155,15 +204,38 @@ export default function ClientsPage() {
         </Select>
       </div>
 
+      <ActiveFilters filters={activeFilters} onReset={resetFilters} />
+
       <div className="rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
-          <p className="p-6 text-sm text-status-danger">{error}</p>
-        ) : isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
+          <LoadError message={error} onRetry={retry} />
+        ) : isLoading && clients.length === 0 ? (
+          <TableSkeleton columns={7} />
         ) : clients.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucun dossier ne correspond à ces filtres.</p>
+          activeFilters.length > 0 ? (
+            <EmptyState
+              title="Aucun dossier ne correspond à ces filtres."
+              action={
+                <Button size="sm" variant="secondary" onClick={resetFilters}>
+                  Réinitialiser les filtres
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="Aucun dossier client pour l'instant."
+              description="Un dossier est créé quand un appel est qualifié avec un statut de prise de rendez-vous."
+              action={
+                hasPermission("calls.view") ? (
+                  <Link href="/calls" className={buttonClassName({ variant: "secondary", size: "sm" })}>
+                    Aller à la file À appeler →
+                  </Link>
+                ) : undefined
+              }
+            />
+          )
         ) : (
-          <table className="w-full text-sm">
+          <table className={cn("w-full text-sm transition-opacity", isLoading && "opacity-60")} aria-busy={isLoading}>
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Contact</th>
@@ -171,19 +243,23 @@ export default function ClientsPage() {
                 <th className="px-4 py-2.5 font-medium">Statut dossier</th>
                 <th className="px-4 py-2.5 font-medium">Statut final</th>
                 <th className="px-4 py-2.5 font-medium">Agent</th>
-                <th className="px-4 py-2.5 font-medium">Télephoniste</th>
+                <th className="px-4 py-2.5 font-medium">Téléphoniste</th>
                 <th className="px-4 py-2.5 font-medium" />
               </tr>
             </thead>
             <tbody>
               {clients.map((client) => (
-                <tr key={client.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+                <tr
+                  key={client.id}
+                  className={cn("border-b border-border last:border-0 hover:bg-surface-subtle", CLICKABLE_ROW_CLASS)}
+                  {...clickableRowProps(() => router.push(`/clients/${client.id}`))}
+                >
                   <td className="px-4 py-2.5 text-ink">
                     {client.firstName || client.lastName
                       ? `${client.firstName ?? ""} ${client.lastName ?? ""}`.trim()
                       : "—"}
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-forest-600">{client.phoneNumber}</td>
+                  <td className="px-4 py-2.5"><PhoneLink number={client.phoneNumber} /></td>
                   <td className="px-4 py-2.5">
                     <StatusBadge label={client.dossierStatus.label} color={client.dossierStatus.color} />
                   </td>
@@ -194,10 +270,8 @@ export default function ClientsPage() {
                   <td className="px-4 py-2.5 text-ink-muted">{personLabel(client.telephoniste)}</td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Link href={`/clients/${client.id}`}>
-                        <Button size="sm" variant="secondary">
-                          Ouvrir
-                        </Button>
+                      <Link href={`/clients/${client.id}`} className={buttonClassName({ variant: "secondary", size: "sm" })}>
+                        Ouvrir
                       </Link>
                       {canDelete ? (
                         <Button size="sm" variant="ghost" onClick={() => setDeleteTargetId(client.id)}>

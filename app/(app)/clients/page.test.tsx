@@ -9,6 +9,8 @@ const deleteClient = vi.fn();
 let permissions: string[] = [];
 
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/lib/api/clients", () => ({
   listClients: (...a: unknown[]) => listClients(...a),
   deleteClient: (...a: unknown[]) => deleteClient(...a),
@@ -46,7 +48,11 @@ describe("/clients — suppression d'un dossier", () => {
     render(<ClientsPage />);
     await screen.findByText(/Alice/);
     expect(screen.queryByRole("button", { name: "Supprimer" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Ouvrir" })).toHaveLength(2);
+    // Lot UX 2 : un seul élément interactif (lien stylé en bouton), plus de <Link><Button>.
+    expect(screen.getAllByRole("link", { name: "Ouvrir" })).toHaveLength(2);
+    // Lot UX 2 : un clic sur la ligne ouvre aussi la fiche.
+    fireEvent.click(screen.getByText(/Alice/));
+    expect(push).toHaveBeenCalledWith("/clients/1");
   });
 
   it("avec clients.delete : un bouton par ligne ; confirmation avec irréversibilité ; Annuler ne supprime rien", async () => {

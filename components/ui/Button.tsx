@@ -21,18 +21,17 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
   md: "h-10 px-4 text-sm gap-2",
 };
 
-export function Button({ variant = "primary", size = "md", className, ...props }: ButtonProps) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center justify-center rounded-md font-medium transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2 focus-visible:ring-offset-cream",
-        "disabled:cursor-not-allowed disabled:opacity-60",
-        VARIANT_CLASSES[variant],
-        SIZE_CLASSES[size],
-        className,
-      )}
-      {...props}
-    />
+/** Classes d'un bouton, réutilisables sur un <Link> (navigation) — jamais <Link><Button>, qui imbrique deux éléments interactifs. */
+export function buttonClassName({ variant = "primary", size = "md" }: { variant?: ButtonVariant; size?: ButtonSize } = {}) {
+  return cn(
+    "inline-flex items-center justify-center rounded-md font-medium transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2 focus-visible:ring-offset-cream",
+    "disabled:cursor-not-allowed disabled:opacity-60",
+    VARIANT_CLASSES[variant],
+    SIZE_CLASSES[size],
   );
+}
+
+export function Button({ variant = "primary", size = "md", className, ...props }: ButtonProps) {
+  return <button className={cn(buttonClassName({ variant, size }), className)} {...props} />;
 }

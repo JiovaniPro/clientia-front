@@ -20,7 +20,7 @@ function renderAs(user: object | null, isLoading: boolean, permissions: string[]
   render(<RootPage />);
 }
 // Sous-lot 3 : la landing complète a pour titre la proposition de valeur (le placeholder avait « CLIENTIA »).
-const landingShown = () => screen.queryByRole("heading", { level: 1, name: /De l'appel au rendez-vous/ });
+const landingShown = () => screen.queryByRole("heading", { level: 1, name: /Transformez vos appels en rendez-vous/ });
 
 describe("/ — aiguillage landing / écran de départ (sous-lot 2)", () => {
   beforeEach(() => replace.mockReset());
@@ -40,8 +40,8 @@ describe("/ — aiguillage landing / écran de départ (sous-lot 2)", () => {
   });
 
   it.each([
-    ["Administrateur", ADMIN, "/today"],
-    ["Agent calliste", CALLISTE, "/today"],
+    ["Administrateur", ADMIN, "/my-stats"],
+    ["Agent calliste", CALLISTE, "/my-stats"],
     ["Agent RDV", AGENT_RDV, "/agent-rdv/dashboard"],
   ])("%s connecté : redirigé vers %s, sans rendu de la landing", (_role, permissions, target) => {
     renderAs({ id: "u1" }, false, permissions);

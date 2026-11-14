@@ -95,3 +95,50 @@ describe("CalendarGrid — vue partagée", () => {
     expect(screen.getByRole("button", { name: /À un autre/ })).not.toHaveClass("cursor-grab");
   });
 });
+
+describe("CalendarGrid — survol des places libres", () => {
+  it("survol d'un créneau futur : repère à l'heure qu'un clic créerait ; zone passée ou sortie de la colonne : aucun repère", () => {
+    renderGrid();
+    const [, todayZone] = screen.getAllByTestId("past-zone");
+    const todayColumn = todayZone!.parentElement!;
+    expect(screen.queryByTestId("slot-hover")).toBeNull();
+
+    fireEvent.mouseMove(todayColumn, { clientY: 4 * HOUR }); // 11:00
+    const hover = screen.getByTestId("slot-hover");
+    expect(hover).toHaveTextContent("11:00");
+    expect(hover.style.top).toBe(`${4 * HOUR}px`);
+
+    fireEvent.mouseMove(todayZone!, { clientY: HOUR }); // sur la zone hachurée
+    expect(screen.queryByTestId("slot-hover")).toBeNull();
+
+    fireEvent.mouseMove(todayColumn, { clientY: 5.5 * HOUR }); // 12:30
+    expect(screen.getByTestId("slot-hover")).toHaveTextContent("12:30");
+    fireEvent.mouseLeave(todayColumn);
+    expect(screen.queryByTestId("slot-hover")).toBeNull();
+  });
+});
+
+describe("CalendarGrid — rendez-vous annulés ou refusés", () => {
+  it("annulé : étiquette « Annulé », titre barré, fond éteint ; un RDV actif n'a rien de tout cela", () => {
+    renderGrid({
+      events: [
+        event({ id: "a1", title: "RDV annulé", status: "ANNULE" }),
+        event({ id: "a2", title: "RDV actif", status: "CONFIRME", startAt: new Date(2026, 9, 1, 16, 0).toISOString(), endAt: new Date(2026, 9, 1, 17, 0).toISOString() }),
+      ],
+    });
+    const cancelled = screen.getByRole("button", { name: /RDV annulé/ });
+    expect(cancelled).toHaveTextContent("Annulé");
+    expect(cancelled.title).toContain("Rendez-vous annulé");
+    expect(screen.getByText("RDV annulé")).toHaveClass("line-through");
+    expect(cancelled.style.backgroundColor).toBe("var(--color-surface-subtle)");
+
+    const active = screen.getByRole("button", { name: /RDV actif/ });
+    expect(active).not.toHaveTextContent("Annulé");
+    expect(screen.getByText("RDV actif")).not.toHaveClass("line-through");
+  });
+
+  it("refusé : étiquette « Refusé »", () => {
+    renderGrid({ events: [event({ status: "REFUSE" })] });
+    expect(screen.getByRole("button", { name: /RDV Martin/ })).toHaveTextContent("Refusé");
+  });
+});

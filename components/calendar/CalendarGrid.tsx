@@ -1,10 +1,11 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { addDays, formatDayHeader, isSameDay } from "@/lib/calendar/dateUtils";
 import { layoutDayEvents } from "@/lib/calendar/layout";
-import type { CalendarEventDTO, EventType } from "@/lib/api/calendar";
+import type { AppointmentStatus, CalendarEventDTO, EventType } from "@/lib/api/calendar";
 import { PASTEL_TEXT_COLOR } from "@/lib/calendar/personColors";
 
 /**
@@ -37,6 +38,13 @@ export const TYPE_LABEL: Record<EventType, string> = {
   BLOCKED_TIME: "Bloqué",
   REMINDER_EVENT: "Rappel",
 };
+
+/**
+ * Rendez-vous clos (annulé par l'agent ou le calliste, refusé par l'agent) : le bloc n'est plus un engagement,
+ * il doit se lire comme tel d'un coup d'œil — fond éteint, contour en tirets, titre barré, et une étiquette
+ * explicite (jamais la teinte seule : le libellé porte l'information).
+ */
+const CLOSED_STATUS_LABEL: Partial<Record<AppointmentStatus, string>> = { ANNULE: "Annulé", REFUSE: "Refusé" };
 
 /**
  * Sous-lot C4 — anneau de bordure pour la sévérité de conflit (décision actée),
@@ -317,9 +325,10 @@ function DayColumn({
   // "maintenant" pour aujourd'hui, rien pour un jour futur. Même règle que assertNotInPast.
   const pastHeight = Math.min(GRID_HEIGHT, Math.max(0, ((now.getTime() - dayStart.getTime()) / 3_600_000) * HOUR_HEIGHT));
 
-  function handleColumnClick(clientY: number) {
+  /** Créneau (arrondi) sous le curseur, ou null s'il est passé. Sert au clic ET au survol : ils ne peuvent pas diverger. */
+  function slotStartAt(clientY: number): Date | null {
     const rect = localRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) return null;
     const offsetY = Math.max(0, clientY - rect.top);
     const rawMinutes = (offsetY / HOUR_HEIGHT) * 60;
     const snapped = snapMinutes(rawMinutes);
@@ -327,9 +336,24 @@ function DayColumn({
     start.setHours(RANGE_START_HOUR, 0, 0, 0);
     start.setMinutes(start.getMinutes() + snapped);
     // L'arrondi à la demi-heure peut retomber avant "maintenant" juste sous la limite.
-    if (start < now) return;
-    onSlotClick(start);
+    if (start < now) return null;
+    return start;
   }
+
+  function handleColumnClick(clientY: number) {
+    const start = slotStartAt(clientY);
+    if (start) onSlotClick(start);
+  }
+
+  /** Survol d'une place libre : le créneau qu'un clic créerait. Jamais sur un événement, la zone passée, ni pendant un glisser. */
+  const [hoverStart, setHoverStart] = useState<Date | null>(null);
+  function handleColumnMove(e: React.MouseEvent) {
+    const overBusy = (e.target as HTMLElement).closest("[data-calendar-event], [data-testid='past-zone']");
+    const next = overBusy || draggingEventId ? null : slotStartAt(e.clientY);
+    setHoverStart((prev) => (prev?.getTime() === next?.getTime() ? prev : next));
+  }
+  const hoverTop = hoverStart ? (minutesSinceRangeStart(hoverStart) / 60) * HOUR_HEIGHT : 0;
+  const showHover = hoverStart !== null && hoverTop < GRID_HEIGHT;
 
   return (
     <div className="min-w-[140px] flex-1 border-r border-border last:border-r-0">
@@ -352,7 +376,20 @@ function DayColumn({
           if (consumeSuppressClick()) return;
           handleColumnClick(e.clientY);
         }}
+        onMouseMove={handleColumnMove}
+        onMouseLeave={() => setHoverStart(null)}
       >
+        {showHover ? (
+          <div
+            data-testid="slot-hover"
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 flex items-center gap-1 bg-ink/10 px-1.5 font-mono text-xs font-medium text-ink"
+            style={{ top: hoverTop, height: Math.min(HOUR_HEIGHT / 2, GRID_HEIGHT - hoverTop), zIndex: 5 }}
+          >
+            <Plus size={12} aria-hidden />
+            {hoverStart.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+          </div>
+        ) : null}
         {hours.map((hour, i) => (
           <div
             key={hour}
@@ -385,6 +422,7 @@ function DayColumn({
           const person = personOf?.(event);
           const background = person?.color ?? TYPE_COLOR[event.type];
           const draggable = canDrag(event);
+          const closedLabel = event.status ? CLOSED_STATUS_LABEL[event.status] : undefined;
           return (
             <div
               key={event.id}
@@ -398,6 +436,7 @@ function DayColumn({
                * `overflow-hidden` (troncature du titre) : celui du wrapper ne servait
                * à rien d'observable, seulement à rogner les indicateurs en débordement.
                */
+              data-calendar-event
               className="absolute"
               style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%`, zIndex: isDragging ? 50 : 10 + col }}
             >
@@ -410,16 +449,20 @@ function DayColumn({
                   onEventClick(event);
                 }}
                 className={cn(
-                  "relative h-full w-full overflow-hidden rounded-md px-1.5 py-1 text-left text-xs text-white shadow-flat hover:brightness-95",
+                  "relative h-full w-full overflow-hidden rounded-md px-1.5 py-1 text-left text-xs hover:brightness-95",
+                  closedLabel
+                    ? "border border-dashed border-status-danger/60 text-ink-muted"
+                    : "text-white shadow-flat",
                   draggable && !isPending && "cursor-grab active:cursor-grabbing",
                   isDragging && "opacity-80 ring-2 ring-white",
                   isPending && "opacity-50",
                 )}
                 style={{
-                  backgroundColor: background,
-                  ...(person ? { color: PASTEL_TEXT_COLOR } : {}),
-                  // Anneau de conflit (sous-lot C4) — le fond reste piloté par le type ou la personne.
-                  boxShadow: event.conflictSeverity
+                  backgroundColor: closedLabel ? "var(--color-surface-subtle)" : background,
+                  ...(person && !closedLabel ? { color: PASTEL_TEXT_COLOR } : {}),
+                  // Anneau de conflit (sous-lot C4) — le fond reste piloté par le type ou la personne ; plus de
+                  // conflit à signaler sur un rendez-vous clos.
+                  boxShadow: event.conflictSeverity && !closedLabel
                     ? `0 0 0 2px ${background}, 0 0 0 4px ${CONFLICT_SEVERITY_COLOR[event.conflictSeverity]}`
                     : undefined,
                 }}
@@ -427,6 +470,7 @@ function DayColumn({
                   event.title,
                   person?.name,
                   TYPE_LABEL[event.type],
+                  closedLabel ? `Rendez-vous ${closedLabel.toLowerCase()}` : null,
                   event.hasPendingInvitation ? "Invitation en attente de votre réponse" : null,
                   event.conflictSeverity ? CONFLICT_SEVERITY_LABEL[event.conflictSeverity] : null,
                 ]
@@ -443,7 +487,12 @@ function DayColumn({
                       aria-hidden
                     />
                   ) : null}
-                  <span className="truncate">{event.title}</span>
+                  {closedLabel ? (
+                    <span className="shrink-0 rounded-sm bg-status-danger/10 px-1 text-[10px] font-semibold uppercase leading-4 tracking-wide text-status-danger">
+                      {closedLabel}
+                    </span>
+                  ) : null}
+                  <span className={cn("truncate", closedLabel && "line-through")}>{event.title}</span>
                 </p>
                 {person ? <p className="truncate font-semibold">{person.name}</p> : null}
                 {height > (person ? 44 : 32) ? (

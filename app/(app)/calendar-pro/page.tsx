@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { LoadError } from "@/components/ui/ListStates";
+import { PhoneLink } from "@/components/ui/PhoneLink";
 import { CalendarGrid } from "@/components/calendar/CalendarGrid";
 import { EventPanel } from "@/components/calendar/EventPanel";
 import type { CalendarDTO, CalendarEventDTO } from "@/lib/api/calendar";
@@ -16,6 +18,7 @@ import { listUsers } from "@/lib/api/users";
 import { addDays, formatDayLabel, formatWeekRangeLabel, startOfWeek } from "@/lib/calendar/dateUtils";
 import { buildPersonColors } from "@/lib/calendar/personColors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 type ViewMode = "week" | "day";
 type EventPrefill = { title: string; callId: string; agentRdvId?: string; withMeet?: boolean };
@@ -73,6 +76,8 @@ function CalendarProContent() {
   const [events, setEvents] = useState<CalendarEventDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Échec du chargement des événements de la période affichée — seul cas relançable par "Réessayer". */
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>(null);
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
@@ -207,14 +212,14 @@ function CalendarProContent() {
 
   const fetchEvents = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
+    setEventsError(null);
     try {
       const from = days[0]!;
       const to = addDays(days[days.length - 1]!, 1);
       const items = await authedFetch((token) => listEvents({ from: from.toISOString(), to: to.toISOString() }, token));
       setEvents(items);
     } catch {
-      setError("Impossible de charger les événements.");
+      setEventsError("Impossible de charger les événements.");
     } finally {
       setIsLoading(false);
     }
@@ -310,11 +315,10 @@ function CalendarProContent() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.14 — sous-lots A + B</p>
-          <h1 className="font-display text-2xl font-bold text-ink">Calendrier partagé</h1>
+          <PageTitle parent="Agenda">Calendrier partagé</PageTitle>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={goToday}>
@@ -349,6 +353,11 @@ function CalendarProContent() {
       </header>
 
       {error ? <p className="text-sm text-status-danger">{error}</p> : null}
+      {eventsError ? (
+        <div className="rounded-md border border-status-danger/30 bg-status-danger/10">
+          <LoadError message={eventsError} onRetry={fetchEvents} />
+        </div>
+      ) : null}
       {pendingClientError ? <p className="text-sm text-status-danger">{pendingClientError}</p> : null}
       {pendingClient ? (
         <div className="flex items-start justify-between gap-3 rounded-md border border-terracotta-500/30 bg-terracotta-500/10 p-3">
@@ -357,7 +366,7 @@ function CalendarProContent() {
               Client en attente de planification : {personLabel(pendingClient)}
             </p>
             <p className="text-ink-muted">
-              {pendingClient.phoneNumber}
+              <PhoneLink number={pendingClient.phoneNumber} className="text-ink-muted" />
               {pendingClient.email ? ` · ${pendingClient.email}` : ""} · Agent RDV : {personLabel(pendingClient.agent)}
             </p>
             <p className="mt-1 text-xs text-ink-muted">
@@ -395,8 +404,12 @@ function CalendarProContent() {
           ))}
         </ul>
       ) : null}
-      {isLoading ? <p className="text-sm text-ink-muted">Chargement…</p> : null}
+      {/* Barre de hauteur fixe (toujours rendue) : afficher/masquer le chargement ne décale plus la grille. */}
+      <div className="h-1 overflow-hidden rounded-sm" role="status" aria-label={isLoading ? "Chargement des événements…" : undefined}>
+        {isLoading ? <div className="h-full w-full animate-pulse bg-forest-600/40" /> : null}
+      </div>
 
+      <div className={isLoading ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={isLoading}>
       <CalendarGrid
         days={days}
         events={events}
@@ -407,6 +420,7 @@ function CalendarProContent() {
         pendingEventId={pendingEventId}
         personOf={personOfEvent}
       />
+      </div>
 
       {panel ? (
         <EventPanel

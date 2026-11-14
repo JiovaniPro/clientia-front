@@ -14,7 +14,8 @@ const authedFetch = (fn: (t: string) => unknown) => Promise.resolve(fn("tok"));
 vi.mock("@/lib/auth/AuthContext", () => ({ useAuth: () => ({ authedFetch }) }));
 
 let listCallsCalls: unknown[][] = [];
-vi.mock("@/lib/api/calls", () => ({
+vi.mock("@/lib/api/calls", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/calls")>()),
   listCalls: (...args: unknown[]) => {
     listCallsCalls.push(args);
     return Promise.resolve({ items: [], total: 0, page: 1, pageSize: 25 });
@@ -58,7 +59,7 @@ beforeEach(() => {
 });
 
 describe("ReportsOverview — disposition", () => {
-  it("4 cartes ; graphique horaire + camembert « Appels par statut » ; plus de « Rendez-vous par statut » ni « Dossiers par statut final »", async () => {
+  it("4 cartes ; graphique horaire + répartition « Appels par statut » ; plus de « Rendez-vous par statut » ni « Dossiers par statut final »", async () => {
     render(<ReportsOverview />);
     for (const label of ["Appels qualifiés", "Rendez-vous pris", "Nouveaux dossiers", "Taux de conversion"]) {
       expect(await screen.findByText(label)).toBeInTheDocument();
@@ -171,5 +172,69 @@ describe("ReportsOverview — carte « Taux de conversion »", () => {
     await screen.findByText("Taux de conversion");
     expect(screen.queryByRole("button", { name: /Taux de conversion/ })).not.toBeInTheDocument();
     expect(getConfigurableList).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReportsOverview — tableau de bord complet (tendances, par jour, par type)", () => {
+  it("countDelta / rateDelta : sens, libellé, cas limites", async () => {
+    const { countDelta, rateDelta } = await import("./ReportsOverview");
+    expect(countDelta(0, 0)).toBeUndefined();
+    expect(countDelta(5, 0)).toEqual({ direction: "up", label: "Nouveau" });
+    expect(countDelta(12, 10)).toEqual({ direction: "up", label: "+20 %" });
+    expect(countDelta(5, 10)).toEqual({ direction: "down", label: "−50 %" });
+    expect(countDelta(10, 10)).toEqual({ direction: "flat", label: "Stable" });
+    expect(rateDelta(0.3, 0.25)).toEqual({ direction: "up", label: "+5 pts" });
+    expect(rateDelta(0.24, 0.25)).toEqual({ direction: "down", label: "−1 pt" });
+    expect(rateDelta(0, 0)).toBeUndefined();
+  });
+
+  it("tendance : 2e appel au rapport sur la période précédente (même durée, juste avant) ; affichée sur la tuile", async () => {
+    getCallsReport.mockReset();
+    getCallsReport
+      .mockResolvedValueOnce(CALLS_WITH_CONVERSION) // période courante : 3 qualifiés
+      .mockResolvedValueOnce({ ...CALLS_WITH_CONVERSION, qualified: 2 }); // précédente : 2 qualifiés
+    render(<ReportsOverview />);
+    const card = await screen.findByRole("button", { name: /^Appels qualifiés/ });
+    await waitFor(() => expect(card).toHaveTextContent("+50 %"));
+    expect(card).toHaveTextContent("vs période précédente");
+
+    expect(getCallsReport).toHaveBeenCalledTimes(2);
+    const current = getCallsReport.mock.calls[0]![0] as { from: Date; to: Date };
+    const previous = getCallsReport.mock.calls[1]![0] as { from: Date; to: Date };
+    expect(previous.to.getTime()).toBe(current.from.getTime() - 1);
+    expect(current.from.getTime() - previous.from.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("échec du rapport de la période précédente : le tableau de bord reste affiché, sans tendance", async () => {
+    getCallsReport.mockReset();
+    getCallsReport.mockResolvedValueOnce(CALLS_WITH_CONVERSION).mockRejectedValueOnce(new Error("boom"));
+    render(<ReportsOverview />);
+    const card = await screen.findByRole("button", { name: /^Appels qualifiés/ });
+    await waitFor(() => expect(getCallsReport).toHaveBeenCalledTimes(2));
+    expect(card).not.toHaveTextContent("vs période précédente");
+    expect(screen.queryByText("Impossible de charger les statistiques.")).toBeNull();
+  });
+
+  it("« par jour » affiché sur 7 jours, masqué sur « Aujourd'hui » ; « par type » seulement avec plusieurs types", async () => {
+    getCallsReport.mockResolvedValue({
+      ...CALLS_WITH_CONVERSION,
+      byDay: [{ date: "2026-11-11", count: 1 }, { date: "2026-11-12", count: 2 }],
+      byType: [{ type: "PROSPECTION", count: 8 }, { type: "FOLLOW_UP", count: 2 }],
+    });
+    render(<ReportsOverview />);
+    expect(await screen.findByRole("heading", { name: "Appels qualifiés par jour" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Appels par type" })).toBeInTheDocument();
+    expect(screen.getByText("Relance")).toBeInTheDocument(); // libellé français, jamais FOLLOW_UP
+    expect(screen.queryByText("FOLLOW_UP")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aujourd'hui" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Appels qualifiés par jour" })).toBeNull());
+  });
+
+  it("un seul type d'appel : pas de carte « Appels par type »", async () => {
+    getCallsReport.mockResolvedValue({ ...CALLS_WITH_CONVERSION, byType: [{ type: "PROSPECTION", count: 10 }] });
+    render(<ReportsOverview />);
+    await screen.findByText("Appels qualifiés");
+    expect(screen.queryByRole("heading", { name: "Appels par type" })).toBeNull();
   });
 });

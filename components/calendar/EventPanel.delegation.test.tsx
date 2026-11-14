@@ -90,6 +90,21 @@ describe("délégation RDV — EventPanel", () => {
     expect(screen.getByText(/lui seul peut confirmer ou refuser/)).toBeInTheDocument();
   });
 
+  it("calliste organisateur : pas de Supprimer sur un RDV (agent RDV impliqué), mais oui sur sa propre réunion", async () => {
+    currentUser = { id: "org" };
+    permissions = [...AGENT_RDV_PERMS, "calendar.delete"];
+    const { unmount } = render(
+      <EventPanel event={appointment()} calendarId="cal1" canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+    );
+    await agentsLoaded();
+    expect(queryButton("Supprimer")).not.toBeInTheDocument();
+    unmount();
+
+    const meeting = { ...appointment(), type: "MEETING", status: null, callId: null, agentRdvId: null } as unknown as CalendarEventDTO;
+    render(<EventPanel event={meeting} calendarId="cal1" canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Supprimer" })).toBeInTheDocument();
+  });
+
   it("sans viewAll et sans lien avec le RDV : aucun bouton (comme le backend)", async () => {
     currentUser = { id: "other" };
     permissions = AGENT_RDV_PERMS;
@@ -298,6 +313,51 @@ describe("délégation RDV — EventPanel", () => {
       fireEvent.change(await screen.findByLabelText("Type"), { target: { value: "APPOINTMENT" } });
       await agentsLoaded();
       expect(screen.getByLabelText("Agent RDV")).toBeEnabled();
+    });
+  });
+
+  describe("bouton « Annuler le rendez-vous »", () => {
+    // Permissions calendrier du rôle « Agent calliste » par défaut (sans manageAppointments ni update).
+    const CALLISTE_PERMS = ["calendar.view", "calendar.create", "calendar.delete"];
+
+    it("calliste organisateur : visible, et distinct du bouton « Annuler » qui ferme le panneau", async () => {
+      currentUser = { id: "org" };
+      permissions = CALLISTE_PERMS;
+      renderPanel();
+      await agentsLoaded();
+      expect(queryButton("Annuler le rendez-vous")).toBeInTheDocument();
+      expect(queryButton("Annuler")).toBeInTheDocument();
+    });
+
+    it("agent RDV assigné : visible, y compris sur un RDV confirmé", async () => {
+      renderPanel(appointment("CONFIRME"));
+      await agentsLoaded();
+      expect(queryButton("Annuler le rendez-vous")).toBeInTheDocument();
+    });
+
+    it("utilisateur sans droit ni lien avec le RDV : absent", async () => {
+      currentUser = { id: "other" };
+      permissions = CALLISTE_PERMS;
+      renderPanel();
+      await agentsLoaded();
+      expect(queryButton("Annuler le rendez-vous")).not.toBeInTheDocument();
+    });
+
+    it("après confirmation : API appelée avec ANNULE, statut affiché, bouton retiré", async () => {
+      api.changeAppointmentStatus.mockResolvedValue({ ...appointment(), status: "ANNULE" });
+      currentUser = { id: "org" };
+      permissions = CALLISTE_PERMS;
+      renderPanel();
+      await agentsLoaded();
+      fireEvent.click(screen.getByRole("button", { name: "Annuler le rendez-vous" }));
+      expect(await screen.findByText("Annuler ce rendez-vous")).toBeInTheDocument();
+      expect(api.changeAppointmentStatus).not.toHaveBeenCalled();
+      expect(queryButton("Garder le rendez-vous")).toBeInTheDocument();
+      // Deux boutons du même nom : celui du panneau, puis celui de la confirmation (rendue après).
+      fireEvent.click(screen.getAllByRole("button", { name: "Annuler le rendez-vous" }).at(-1)!);
+      await waitFor(() => expect(api.changeAppointmentStatus).toHaveBeenCalledWith("e1", { status: "ANNULE" }, "tok"));
+      expect(await screen.findByText("Rendez-vous annulé.")).toBeInTheDocument();
+      expect(queryButton("Annuler le rendez-vous")).not.toBeInTheDocument();
     });
   });
 

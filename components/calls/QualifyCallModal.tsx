@@ -14,6 +14,17 @@ import type { ClientDetailDTO } from "@/lib/api/clients";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
+import { cn } from "@/lib/cn";
+
+/**
+ * Créneaux proposés en un clic. La valeur reste un texte libre (champ "Créneau" éditable) : le backend
+ * en lit le premier nombre pour l'heure du rappel automatique (calls/autoReminder.ts — "9h-12h" → 9h00).
+ */
+const RECALL_SLOT_PRESETS = [
+  { label: "Matin", value: "9h-12h" },
+  { label: "Après-midi", value: "14h-17h" },
+  { label: "Fin de journée", value: "17h-19h" },
+];
 
 interface QualifyCallModalProps {
   call: CallDTO;
@@ -43,6 +54,8 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
   const [statusKey, setStatusKey] = useState(call.status.key);
   const [recallDate, setRecallDate] = useState("");
   const [recallTimeSlot, setRecallTimeSlot] = useState("");
+  const initialNotes = call.notes ?? "";
+  const [notes, setNotes] = useState(initialNotes);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCreateDossier, setShowCreateDossier] = useState(false);
@@ -50,7 +63,7 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
   // CreateClientDossierModal (409 CLIENT_DOSSIER_REQUIRED) ne passe jamais par
   // requestClose, et ce composant reste monté pendant l'étape dossier — sa
   // référence et la saisie en cours sont conservées pour le retour.
-  const { requestClose, confirmElement } = useUnsavedChangesGuard({ statusKey, recallDate, recallTimeSlot }, onClose);
+  const { requestClose, confirmElement } = useUnsavedChangesGuard({ statusKey, recallDate, recallTimeSlot, notes }, onClose);
 
   const selectedStatus = statuses.find((s) => s.key === statusKey);
   const requiresRecallDate = asksForRecallDate(selectedStatus);
@@ -60,6 +73,8 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
       statusKey,
       ...(requiresRecallDate && recallDate ? { recallDate: new Date(recallDate).toISOString() } : {}),
       ...(requiresRecallDate && recallTimeSlot ? { recallTimeSlot } : {}),
+      // Envoyées seulement si modifiées : rejouer la sauvegarde après création du dossier reste identique.
+      ...(notes !== initialNotes ? { notes } : {}),
     };
     const { call: updated } = await authedFetch((token) => changeCallStatus(call.id, input, token));
     return updated;
@@ -127,22 +142,59 @@ export function QualifyCallModal({ call, statuses, onClose, onSaved }: QualifyCa
         </Select>
 
         {requiresRecallDate ? (
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 p-3">
-            <Input
-              label="Date de rappel"
-              type="date"
-              value={recallDate}
-              onChange={(e) => setRecallDate(e.target.value)}
-              required
-            />
-            <Input
-              label="Créneau"
-              placeholder="14h-16h"
-              value={recallTimeSlot}
-              onChange={(e) => setRecallTimeSlot(e.target.value)}
-            />
+          <div className="space-y-3 rounded-md border border-status-warning/30 bg-status-warning/10 p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Date de rappel"
+                type="date"
+                value={recallDate}
+                onChange={(e) => setRecallDate(e.target.value)}
+                required
+              />
+              <Input
+                label="Créneau"
+                placeholder="ex. 14h30 ou 15h-16h"
+                value={recallTimeSlot}
+                onChange={(e) => setRecallTimeSlot(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Créneaux prédéfinis">
+              {RECALL_SLOT_PRESETS.map((preset) => {
+                const isActive = recallTimeSlot === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setRecallTimeSlot(isActive ? "" : preset.value)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600",
+                      isActive
+                        ? "border-forest-600 bg-forest-50 text-forest-600"
+                        : "border-border bg-surface text-ink-muted hover:text-ink",
+                    )}
+                  >
+                    {preset.label} <span className="font-mono">{preset.value}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : null}
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-ink" htmlFor="qualify-call-notes">
+            Notes
+          </label>
+          <textarea
+            id="qualify-call-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Ce qui s'est dit pendant l'appel…"
+            className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-forest-600 focus:border-forest-600 disabled:opacity-60"
+          />
+        </div>
 
         {error ? <p className="text-sm text-status-danger">{error}</p> : null}
 

@@ -6,6 +6,8 @@ export interface CallsReportDTO {
   qualified: number;
   /** 24 entrées (0–23 h) : appels qualifiés de la période, à l'heure de leur qualification. */
   byHour: { hour: number; count: number }[];
+  /** Un point par jour de la période ("AAAA-MM-JJ") : appels qualifiés, au jour de leur qualification. */
+  byDay?: { date: string; count: number }[];
   byStatus: { statusId: string; label: string; count: number }[];
   byType: { type: string; count: number }[];
   byDirection: { direction: "INBOUND" | "OUTBOUND"; count: number }[];

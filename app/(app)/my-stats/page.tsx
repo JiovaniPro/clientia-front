@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/Select";
 import { ReportsOverview } from "@/components/reports/ReportsOverview";
+import { TodoStrip } from "@/components/reports/TodoStrip";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 function personLabel(u: UserListItemDTO) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
@@ -38,24 +40,34 @@ export default function MyStatsPage() {
   }, [canViewAll, authedFetch]);
 
   const isViewingSelf = selectedUserId === user?.id;
+  const viewedColleague = colleagues.find((c) => c.id === selectedUserId);
+  const viewedName = viewedColleague ? personLabel(viewedColleague) : "l'agent";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-8">
+    <div className="space-y-6 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Statistiques</p>
-        <h1 className="font-display text-2xl font-bold text-ink">
-          {isViewingSelf ? "Mes statistiques" : "Statistiques de l'agent"}
-        </h1>
+        <PageTitle parent="Statistiques">
+          {isViewingSelf ? "Mes statistiques" : `Statistiques de ${viewedName}`}
+        </PageTitle>
+        <p className="text-sm text-ink-muted">
+          {isViewingSelf
+            ? "Votre activité d'appels et de prise de rendez-vous sur la période choisie."
+            : "Activité d'appels et de prise de rendez-vous de cet agent sur la période choisie."}
+        </p>
       </header>
+
+      {/* Ce qui attend l'utilisateur maintenant — uniquement sur ses propres statistiques. */}
+      {isViewingSelf ? <TodoStrip /> : null}
 
       <ReportsOverview
         userId={selectedUserId || undefined}
         extraControls={
           canViewAll && colleagues.length > 0 ? (
             <Select
+              aria-label="Agent consulté"
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
-              className="max-w-xs"
+              className="w-64"
             >
               <option value={user?.id ?? ""}>Moi-même</option>
               {colleagues

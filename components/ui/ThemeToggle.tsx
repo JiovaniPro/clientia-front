@@ -3,19 +3,20 @@
 import { Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { isDarkTheme, setDarkTheme } from "@/lib/theme";
 
 /**
  * Bascule clair/sombre — contrôle segmenté (capsule, soleil / lune), option active sur fond
  * vert forêt. Agit sur la classe `.dark` de <html> (celle que lisent les tokens de
- * globals.css et le Logo). Pas de persistance : l'état initial est lu sur <html>, jamais
+ * globals.css et le Logo). Choix mémorisé (lib/theme.ts) ; l'état initial est lu sur <html>, jamais
  * supposé (l'ancien bouton texte affichait « Mode sombre » même déjà en sombre).
  * Capsule `rounded-full` : exception assumée au plafond de rayon du brief, demandée pour ce contrôle.
  */
 export function ThemeToggle() {
-  const [dark, setDark] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+  const [dark, setDark] = useState(isDarkTheme);
 
   function apply(next: boolean) {
-    document.documentElement.classList.toggle("dark", next);
+    setDarkTheme(next);
     setDark(next);
   }
 

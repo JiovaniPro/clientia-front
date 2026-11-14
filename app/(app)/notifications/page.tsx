@@ -3,10 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { EmptyState, LoadError, TableSkeleton } from "@/components/ui/ListStates";
 import { cn } from "@/lib/cn";
 import type { NotificationDTO } from "@/lib/api/notifications";
 import { listNotifications, markAllNotificationsAsRead, markNotificationAsRead } from "@/lib/api/notifications";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { getEventIdFromMeta } from "@/lib/notifications/meta";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 const PAGE_SIZE = 25;
 
@@ -21,13 +24,7 @@ function formatCreatedAt(iso: string) {
  * contentait de marquer comme lu. Gap corrigé ici, pas juste pour le nouveau type —
  * tout `meta.eventId` présent redirige, quel que soit le type de notification.
  */
-function getEventIdFromMeta(meta: unknown): string | undefined {
-  if (meta && typeof meta === "object" && "eventId" in meta) {
-    const value = (meta as { eventId?: unknown }).eventId;
-    return typeof value === "string" ? value : undefined;
-  }
-  return undefined;
-}
+// getEventIdFromMeta : lib/notifications/meta.ts (partagé avec la modale de la cloche).
 
 /**
  * §5.10 — Toujours scopé au destinataire côté backend (voir modules/notifications/
@@ -90,13 +87,12 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header className="flex items-center justify-between">
         <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.10</p>
-          <h1 className="font-display text-2xl font-bold text-ink">
+          <PageTitle parent="Activité">
             Notifications {unreadCount > 0 ? <span className="text-forest-600">({unreadCount})</span> : null}
-          </h1>
+          </PageTitle>
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-ink-muted">
@@ -118,13 +114,34 @@ export default function NotificationsPage() {
 
       <div className="rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
-          <p className="p-6 text-sm text-status-danger">{error}</p>
-        ) : isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
+          <LoadError message={error} onRetry={fetchNotifications} />
+        ) : isLoading && notifications.length === 0 ? (
+          <TableSkeleton columns={2} rows={5} />
         ) : notifications.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucune notification.</p>
+          unreadOnly ? (
+            <EmptyState
+              title="Aucune notification non lue."
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setPage(1);
+                    setUnreadOnly(false);
+                  }}
+                >
+                  Afficher toutes les notifications
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="Aucune notification pour l'instant."
+              description="Les invitations et les changements sur vos rendez-vous apparaîtront ici."
+            />
+          )
         ) : (
-          <ul>
+          <ul className={cn("transition-opacity", isLoading && "opacity-60")} aria-busy={isLoading}>
             {notifications.map((n) => {
               const eventId = getEventIdFromMeta(n.meta);
               return (

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Mono, Inter } from "next/font/google";
 import { AuthProvider } from "@/lib/auth/AuthContext";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -27,10 +28,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // suppressHydrationWarning : le script ci-dessous peut ajouter `.dark` sur <html> avant l'hydratation.
     <html
+      suppressHydrationWarning
       lang="fr"
       className={`${fraunces.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Thème mémorisé appliqué avant le premier affichage (pas de flash clair en mode sombre). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col bg-cream text-ink font-sans">
         <AuthProvider>{children}</AuthProvider>
       </body>

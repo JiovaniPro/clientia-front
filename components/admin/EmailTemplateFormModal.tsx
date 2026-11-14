@@ -40,6 +40,18 @@ const TEMPLATE_VARIABLES = [
     name: "lien_meet",
     description: "Lien Google Meet du rendez-vous — vide si le RDV n'a pas de visio",
   },
+  {
+    name: "bloc_rdv_html",
+    description: "Carte du rendez-vous (date, heure, agent), prête à l'emploi — vide hors e-mail lié à un RDV",
+  },
+  {
+    name: "bloc_rdv_annule_html",
+    description: "Même carte avec la mention « Annulé » et la date barrée — pour les e-mails d'annulation",
+  },
+  {
+    name: "bouton_meet_html",
+    description: "Bouton « Rejoindre la visio » — vide si le RDV n'a pas de visio",
+  },
 ] as const;
 
 export function EmailTemplateFormModal({ template, onClose, onSaved }: EmailTemplateFormModalProps) {
@@ -122,6 +134,10 @@ export function EmailTemplateFormModal({ template, onClose, onSaved }: EmailTemp
           <label htmlFor="email-template-body" className="text-sm font-medium text-ink">
             Contenu
           </label>
+          <p className="text-xs text-ink-muted">
+            HTML accepté (titres, paragraphes, liens…) ; un texte simple est mis en forme automatiquement. L&apos;en-tête à
+            vos couleurs et le pied de page sont ajoutés à l&apos;envoi.
+          </p>
           <textarea
             id="email-template-body"
             value={body}

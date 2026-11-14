@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { EmailHistoryTab } from "@/components/admin/emails/EmailHistoryTab";
 import { EmailTemplatesTab } from "@/components/admin/emails/EmailTemplatesTab";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 type Tab = "templates" | "history";
 
@@ -25,10 +26,9 @@ export default function AdminEmailsPage() {
   const [tab, setTab] = useState<Tab>(canManageTemplates ? "templates" : "history");
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.12</p>
-        <h1 className="font-display text-2xl font-bold text-ink">E-mails</h1>
+        <PageTitle parent="Communication">E-mails</PageTitle>
       </header>
 
       {!canManageTemplates && !canViewHistory ? (

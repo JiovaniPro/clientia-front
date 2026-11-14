@@ -106,7 +106,9 @@ export interface SendEmailInput {
 export interface EmailPreviewDTO {
   templateLabel: string;
   subject: string;
+  /** E-mail complet tel qu'il partira (HTML habillé). Même valeur que `html`. */
   body: string;
+  html: string;
 }
 
 /** POST /emails/preview — §5.12 sous-lot 4, aperçu avant envoi. Aucune écriture. */

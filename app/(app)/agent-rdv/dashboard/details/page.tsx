@@ -7,6 +7,7 @@ import { AppointmentsListModal } from "@/components/reports/AppointmentsListModa
 import type { AppointmentsHistoryPeriodDTO } from "@/lib/api/reports";
 import { getAppointmentsHistory } from "@/lib/api/reports";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 type Granularity = "week" | "month";
 const GRANULARITIES: { key: Granularity; label: string }[] = [
@@ -87,14 +88,13 @@ export default function AgentRdvDetailsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header className="flex items-start justify-between">
         <div>
           <Link href="/agent-rdv/dashboard" className="text-sm text-ink-muted hover:text-ink">
             ← Tableau de bord
           </Link>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.28</p>
-          <h1 className="font-display text-2xl font-bold text-ink">Détail du suivi</h1>
+          <PageTitle parent="Suivi RDV">Détail du suivi</PageTitle>
         </div>
         <div className="flex gap-1 rounded-md border border-border bg-surface p-1">
           {GRANULARITIES.map((g) => (

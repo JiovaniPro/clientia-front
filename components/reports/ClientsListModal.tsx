@@ -104,7 +104,10 @@ export function ClientsListModal({
                   <p className="text-ink">
                     {c.firstName || c.lastName ? `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() : c.phoneNumber}
                   </p>
-                  <p className="text-xs text-ink-muted">{formatDate(updatedFrom || updatedTo ? c.updatedAt : c.createdAt)}</p>
+                  <p className="text-xs text-ink-muted">
+                    {/* updatedAt n'est PAS une date de signature (aucune stockée) : libellé explicite. */}
+                    {updatedFrom || updatedTo ? `Mis à jour le ${formatDate(c.updatedAt)}` : `Créé le ${formatDate(c.createdAt)}`}
+                  </p>
                 </div>
                 <StatusBadge label={c.finalStatus.label} color={c.finalStatus.color} />
               </li>

@@ -1,23 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui/Button";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
+import { KeyRound, Pencil, Plus, Trash2, UserCheck, UserX, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { UserFormModal } from "@/components/admin/UserFormModal";
+import { AdminFeedback } from "@/components/admin/kit/Feedback";
+import { RowMenu } from "@/components/admin/kit/RowMenu";
+import { Switch } from "@/components/admin/kit/Switch";
+import { AdminHeader, FilterChip, RowsSkeleton, SearchField, Segmented, StatTile } from "@/components/admin/kit/Controls";
+import { ClientAvatar } from "@/components/clients/ClientAvatar";
+import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { EmptyState } from "@/components/ui/ListStates";
+import { Select } from "@/components/ui/Select";
+import { ApiError } from "@/lib/api/client";
 import type { RoleListItemDTO } from "@/lib/api/roles";
 import { listRoles } from "@/lib/api/roles";
-import { Select } from "@/components/ui/Select";
 import type { DeletedUserDTO, UserListItemDTO } from "@/lib/api/users";
 import { deleteUser, listDeletedUsers, listUsers, purgeUser, resetPassword, setUserStatus } from "@/lib/api/users";
-import { cn } from "@/lib/cn";
-import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { cn } from "@/lib/cn";
 
 function personLabel(u: { firstName: string | null; lastName: string | null; email: string }) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
+
+const formatDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+
+type StatusFilter = "all" | "active" | "inactive";
 
 /**
  * Sous-lot Utilisateurs — CRUD complet (§2.2) : création/édition sans jamais taper
@@ -25,6 +34,9 @@ function personLabel(u: { firstName: string | null; lastName: string | null; ema
  * vérifiés côté backend, affichés ici tels que le serveur les formule, pas
  * re-devinés côté client), puis supprimer un compte déjà désactivé (suppression
  * douce côté backend — l'historique garde ses liens).
+ *
+ * Présentation : chiffres en tête, recherche et filtres (rôle, statut) en direct, une ligne par personne avec un
+ * interrupteur d'accès, la modification à portée de clic et le reste dans un menu d'actions.
  */
 export default function AdminUsersPage() {
   const { authedFetch, user: currentUser } = useAuth();
@@ -41,9 +53,13 @@ export default function AdminUsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<UserListItemDTO | null>(null);
 
   const [tab, setTab] = useState<"active" | "deleted">("active");
-  const [deletedUsers, setDeletedUsers] = useState<DeletedUserDTO[]>([]);
+  const [deletedUsers, setDeletedUsers] = useState<DeletedUserDTO[] | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<DeletedUserDTO | null>(null);
   const [transferToUserId, setTransferToUserId] = useState("");
+
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -57,23 +73,14 @@ export default function AdminUsersPage() {
     }
   }, [authedFetch]);
 
-  const fetchDeletedUsers = useCallback(async () => {
-    try {
-      setDeletedUsers(await authedFetch((token) => listDeletedUsers(token)));
-    } catch {
-      setError("Impossible de charger les utilisateurs supprimés.");
-    }
-  }, [authedFetch]);
-
-  useEffect(() => {
-    if (tab === "deleted") fetchDeletedUsers();
-  }, [tab, fetchDeletedUsers]);
-
   useEffect(() => {
     fetchUsers();
     authedFetch((token) => listRoles(token))
       .then(setRoles)
       .catch(() => setError("Impossible de charger les rôles."));
+    authedFetch((token) => listDeletedUsers(token))
+      .then(setDeletedUsers)
+      .catch(() => setDeletedUsers([]));
   }, [fetchUsers, authedFetch]);
 
   function handleSaved(saved: UserListItemDTO, isNewAccount: boolean) {
@@ -124,6 +131,9 @@ export default function AdminUsersPage() {
       await authedFetch((token) => deleteUser(target.id, token));
       setUsers((prev) => prev.filter((u) => u.id !== target.id));
       setNotice(`${personLabel(target)} supprimé.`);
+      authedFetch((token) => listDeletedUsers(token))
+        .then(setDeletedUsers)
+        .catch(() => {});
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
     } finally {
@@ -138,7 +148,7 @@ export default function AdminUsersPage() {
     setPendingActionId(target.id);
     try {
       await authedFetch((token) => purgeUser(target.id, transferToUserId, token));
-      setDeletedUsers((prev) => prev.filter((u) => u.id !== target.id));
+      setDeletedUsers((prev) => (prev ?? []).filter((u) => u.id !== target.id));
       const heir = users.find((u) => u.id === transferToUserId);
       setNotice(`${personLabel(target)} supprimé définitivement — son historique a été transféré à ${heir ? personLabel(heir) : "l'utilisateur choisi"}.`);
     } catch (err) {
@@ -163,158 +173,225 @@ export default function AdminUsersPage() {
     }
   }
 
-  const columns: AdminTableColumn<UserListItemDTO>[] = [
-    {
-      header: "Nom",
-      className: "text-ink",
-      cell: (u) => (
-        <>
-          {personLabel(u)}
-          {u.id === currentUser?.id ? <span className="ml-1.5 text-xs text-ink-faint">(vous)</span> : null}
-        </>
-      ),
-    },
-    { header: "E-mail", className: "text-ink-muted", cell: (u) => u.email },
-    { header: "Rôle", className: "text-ink-muted", cell: (u) => u.role.name },
-    {
-      header: "Statut",
-      cell: (u) => (
-        <StatusBadge
-          label={u.isActive ? "Actif" : "Inactif"}
-          color={u.isActive ? "var(--color-forest-600)" : "var(--color-ink-faint)"}
-        />
-      ),
-    },
-    {
-      header: "",
-      className: "text-right",
-      cell: (u) => {
-        const isSelf = u.id === currentUser?.id;
-        const isPending = pendingActionId === u.id;
-        return (
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              className="text-xs font-medium text-forest-600 hover:underline"
-              onClick={() => setModal({ mode: "edit", user: u })}
-            >
-              Modifier
-            </button>
-            <button
-              type="button"
-              className="text-xs font-medium text-forest-600 hover:underline disabled:opacity-50"
-              onClick={() => handleResetPassword(u)}
-              disabled={isPending}
-            >
-              Réinitialiser le mot de passe
-            </button>
-            <button
-              type="button"
-              className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-              onClick={() => handleToggleStatusClick(u)}
-              disabled={isPending || (isSelf && u.isActive)}
-              title={isSelf && u.isActive ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
-            >
-              {u.isActive ? "Désactiver" : "Activer"}
-            </button>
-            {u.isActive ? null : (
-              <button
-                type="button"
-                className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-                onClick={() => setDeleteTarget(u)}
-                disabled={isPending}
-              >
-                Supprimer
-              </button>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
-
-  const deletedColumns: AdminTableColumn<DeletedUserDTO>[] = [
-    { header: "Nom", className: "text-ink", cell: (u) => personLabel(u) },
-    { header: "E-mail", className: "text-ink-muted", cell: (u) => u.email },
-    { header: "Rôle", className: "text-ink-muted", cell: (u) => u.role.name },
-    {
-      header: "Supprimé le",
-      className: "text-ink-muted",
-      cell: (u) => new Date(u.deletedAt).toLocaleDateString("fr-FR"),
-    },
-    {
-      header: "",
-      className: "text-right",
-      cell: (u) => (
-        <button
-          type="button"
-          className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-          onClick={() => {
-            setTransferToUserId(currentUser?.id ?? "");
-            setPurgeTarget(u);
-          }}
-          disabled={pendingActionId === u.id}
-        >
-          Supprimer définitivement
-        </button>
-      ),
-    },
-  ];
-
+  const roleColor = useMemo(() => new Map(roles.map((r) => [r.id, r.color])), [roles]);
+  const activeCount = users.filter((u) => u.isActive).length;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleUsers = users.filter(
+    (u) =>
+      (statusFilter === "all" || (statusFilter === "active") === u.isActive) &&
+      (!roleFilter || u.role.id === roleFilter) &&
+      (!normalizedQuery || `${personLabel(u)} ${u.email} ${u.role.name}`.toLowerCase().includes(normalizedQuery)),
+  );
+  const hasFilters = Boolean(normalizedQuery || roleFilter || statusFilter !== "all");
   const activeHeirs = users.filter((u) => u.isActive);
 
+  function resetFilters() {
+    setQuery("");
+    setRoleFilter("");
+    setStatusFilter("all");
+  }
+
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-8">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Administration</p>
-          <h1 className="font-display text-2xl font-bold text-ink">Utilisateurs</h1>
-        </div>
-        <Button onClick={() => setModal({ mode: "create" })}>Nouvel utilisateur</Button>
-      </header>
+    <div className="space-y-6 p-6">
+      <AdminHeader
+        parent="Administration"
+        title="Utilisateurs"
+        description="Qui a accès à votre espace, avec quel rôle. Les accès se coupent d'un clic, sans rien supprimer."
+        action={
+          <Button onClick={() => setModal({ mode: "create" })}>
+            <Plus size={16} aria-hidden />
+            Nouvel utilisateur
+          </Button>
+        }
+      />
 
-      {notice ? (
-        <p className="rounded-md border border-forest-600/30 bg-forest-600/10 px-3 py-2 text-sm text-forest-600">
-          {notice}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
-          {error}
-        </p>
-      ) : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatTile icon={<Users size={20} />} label="Utilisateurs" value={isLoading ? "–" : users.length} />
+        <StatTile icon={<UserCheck size={20} />} label="Comptes actifs" value={isLoading ? "–" : activeCount} />
+        <StatTile icon={<UserX size={20} />} label="Comptes inactifs" value={isLoading ? "–" : users.length - activeCount} />
+      </div>
 
-      <div className="flex gap-1 border-b border-border">
-        {(
-          [
-            ["active", "Utilisateurs"],
-            ["deleted", "Supprimés"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={cn(
-              "px-3 py-2 text-sm font-medium border-b-2 -mb-px",
-              tab === key ? "border-forest-600 text-ink" : "border-transparent text-ink-muted hover:text-ink",
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Segmented
+          label="Comptes"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "active", label: "Utilisateurs", count: users.length },
+            { value: "deleted", label: "Supprimés", ...(deletedUsers ? { count: deletedUsers.length } : {}) },
+          ]}
+        />
       </div>
 
       {tab === "active" ? (
-        <AdminTable columns={columns} rows={users} rowKey={(u) => u.id} isLoading={isLoading} emptyMessage="Aucun utilisateur." />
+        <>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <SearchField value={query} onChange={setQuery} label="Rechercher un utilisateur" placeholder="Nom, e-mail, rôle…" />
+              <Segmented
+                label="Statut du compte"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "all", label: "Tous" },
+                  { value: "active", label: "Actifs" },
+                  { value: "inactive", label: "Inactifs" },
+                ]}
+              />
+              {hasFilters ? (
+                <button type="button" onClick={resetFilters} className="text-sm font-medium text-forest-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600">
+                  Réinitialiser
+                </button>
+              ) : null}
+            </div>
+            {roles.length > 0 ? (
+              <div role="group" aria-label="Rôle" className="flex flex-wrap gap-2">
+                <FilterChip label="Tous les rôles" count={users.length} active={roleFilter === ""} onClick={() => setRoleFilter("")} />
+                {roles.map((r) => (
+                  <FilterChip
+                    key={r.id}
+                    label={r.name}
+                    color={r.color}
+                    count={users.filter((u) => u.role.id === r.id).length}
+                    active={roleFilter === r.id}
+                    onClick={() => setRoleFilter(roleFilter === r.id ? "" : r.id)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-lg border border-border bg-surface shadow-flat">
+            {isLoading ? (
+              <RowsSkeleton />
+            ) : visibleUsers.length === 0 ? (
+              hasFilters ? (
+                <EmptyState
+                  title="Aucun utilisateur ne correspond."
+                  description="Essayez un autre nom ou retirez les filtres."
+                  action={
+                    <Button size="sm" variant="secondary" onClick={resetFilters}>
+                      Réinitialiser les filtres
+                    </Button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="Aucun utilisateur pour l'instant."
+                  description="Invitez votre première personne : elle recevra un e-mail pour choisir son mot de passe."
+                  action={
+                    <Button size="sm" onClick={() => setModal({ mode: "create" })}>
+                      Nouvel utilisateur
+                    </Button>
+                  }
+                />
+              )
+            ) : (
+              <ul className="divide-y divide-border">
+                {visibleUsers.map((u, i) => {
+                  const isSelf = u.id === currentUser?.id;
+                  const isPending = pendingActionId === u.id;
+                  return (
+                    <li
+                      key={u.id}
+                      className="app-rise group flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3.5 transition-colors hover:bg-surface-subtle/60"
+                      style={{ animationDelay: `${Math.min(i, 10) * 25}ms` }}
+                    >
+                      <ClientAvatar id={u.id} firstName={u.firstName} lastName={u.lastName} className={cn("h-10 w-10", !u.isActive && "opacity-50 grayscale")} />
+                      <div className="min-w-0 flex-1 basis-56">
+                        <p className={cn("flex items-center gap-2 truncate text-sm font-semibold", u.isActive ? "text-ink" : "text-ink-muted")}>
+                          <span className="truncate">{personLabel(u)}</span>
+                          {isSelf ? <span className="shrink-0 rounded-sm bg-forest-50 px-1.5 py-0.5 text-[11px] font-medium text-forest-600">Vous</span> : null}
+                        </p>
+                        <p className="truncate text-xs text-ink-muted">{u.email}</p>
+                      </div>
+                      <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs font-medium text-ink">
+                        <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: roleColor.get(u.role.id) ?? "var(--color-ink-faint)" }} />
+                        {u.role.name}
+                      </span>
+                      <span className="hidden w-40 whitespace-nowrap text-xs text-ink-muted xl:block">Depuis le {formatDate(u.createdAt)}</span>
+                      <div className="flex w-24 items-center gap-2">
+                        <Switch
+                          checked={u.isActive}
+                          onChange={() => handleToggleStatusClick(u)}
+                          label={`Compte de ${personLabel(u)}`}
+                          disabled={isPending || (isSelf && u.isActive)}
+                          title={isSelf && u.isActive ? "Vous ne pouvez pas désactiver votre propre compte" : u.isActive ? "Désactiver le compte" : "Réactiver le compte"}
+                        />
+                        <span className={cn("text-xs font-medium", u.isActive ? "text-forest-600" : "text-ink-muted")}>{u.isActive ? "Actif" : "Inactif"}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setModal({ mode: "edit", user: u })}
+                          aria-label={`Modifier ${personLabel(u)}`}
+                          title="Modifier"
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-forest-600 transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600"
+                        >
+                          <Pencil size={16} aria-hidden />
+                        </button>
+                        <RowMenu
+                          label={`Plus d'actions pour ${personLabel(u)}`}
+                          items={[
+                            { label: "Réinitialiser le mot de passe", icon: KeyRound, onSelect: () => handleResetPassword(u), disabled: isPending },
+                            {
+                              label: "Supprimer le compte",
+                              icon: Trash2,
+                              danger: true,
+                              onSelect: () => setDeleteTarget(u),
+                              disabled: isPending || u.isActive,
+                              hint: u.isActive ? "Désactivez d'abord le compte pour pouvoir le supprimer" : undefined,
+                            },
+                          ]}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          {!isLoading && visibleUsers.length > 0 ? (
+            <p aria-live="polite" className="text-sm text-ink-muted">
+              {visibleUsers.length} utilisateur{visibleUsers.length > 1 ? "s" : ""}
+              {hasFilters ? ` sur ${users.length}` : ""}
+            </p>
+          ) : null}
+        </>
       ) : (
-        <AdminTable
-          columns={deletedColumns}
-          rows={deletedUsers}
-          rowKey={(u) => u.id}
-          isLoading={false}
-          emptyMessage="Aucun utilisateur supprimé."
-        />
+        <div className="rounded-lg border border-border bg-surface shadow-flat">
+          {deletedUsers === null ? (
+            <RowsSkeleton rows={3} />
+          ) : deletedUsers.length === 0 ? (
+            <EmptyState title="Aucun utilisateur supprimé." description="Les comptes supprimés apparaissent ici jusqu'à leur suppression définitive." />
+          ) : (
+            <ul className="divide-y divide-border">
+              {deletedUsers.map((u) => (
+                <li key={u.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3.5">
+                  <ClientAvatar id={u.id} firstName={u.firstName} lastName={u.lastName} className="h-10 w-10 opacity-50 grayscale" />
+                  <div className="min-w-0 flex-1 basis-56">
+                    <p className="truncate text-sm font-semibold text-ink-muted line-through">{personLabel(u)}</p>
+                    <p className="truncate text-xs text-ink-muted">{u.email}</p>
+                  </div>
+                  <span className="rounded-full border border-border px-3 py-1 text-xs font-medium text-ink-muted">{u.role.name}</span>
+                  <span className="text-xs text-ink-muted">Supprimé le {formatDate(u.deletedAt)}</span>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={pendingActionId === u.id}
+                    onClick={() => {
+                      setTransferToUserId(currentUser?.id ?? "");
+                      setPurgeTarget(u);
+                    }}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                    Supprimer définitivement
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {modal ? (
@@ -376,6 +453,8 @@ export default function AdminUsersPage() {
           isConfirming={pendingActionId === purgeTarget.id}
         />
       ) : null}
+
+      <AdminFeedback notice={notice} error={error} onDismissNotice={() => setNotice(null)} onDismissError={() => setError(null)} />
     </div>
   );
 }

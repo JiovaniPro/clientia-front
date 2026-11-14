@@ -239,3 +239,50 @@ describe("Date de rappel selon le statut", () => {
     await vi.waitFor(() => expect(changeCallStatus).toHaveBeenCalledWith("call1", { statusKey: "NE_REPOND_PAS" }, "tok"));
   });
 });
+
+describe("Lot UX 2 — créneaux prédéfinis et notes", () => {
+  const STATUSES = [
+    { id: "r2", key: "RAPPEL", label: "À rappeler", metadata: { requiresRecallDate: true } },
+  ] as unknown as ConfigurableListItemDTO[];
+
+  beforeEach(() => changeCallStatus.mockReset());
+
+  it("un créneau prédéfini remplit le champ Créneau (toujours éditable) et part avec les notes saisies", async () => {
+    changeCallStatus.mockResolvedValue({ call: { ...CALL } });
+    render(<QualifyCallModal call={CALL} statuses={STATUSES} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "RAPPEL" } });
+
+    fireEvent.change(screen.getByLabelText("Date de rappel"), { target: { value: "2026-11-20" } });
+    fireEvent.click(screen.getByRole("button", { name: /Après-midi/ }));
+    expect(screen.getByLabelText("Créneau")).toHaveValue("14h-17h");
+    expect(screen.getByRole("button", { name: /Après-midi/ })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "Préfère être rappelée l'après-midi" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer" }));
+    await vi.waitFor(() =>
+      expect(changeCallStatus).toHaveBeenCalledWith(
+        "call1",
+        {
+          statusKey: "RAPPEL",
+          recallDate: new Date("2026-11-20").toISOString(),
+          recallTimeSlot: "14h-17h",
+          notes: "Préfère être rappelée l'après-midi",
+        },
+        "tok",
+      ),
+    );
+  });
+
+  it("notes existantes préremplies et non modifiées : non renvoyées", async () => {
+    changeCallStatus.mockResolvedValue({ call: { ...CALL } });
+    const callWithNotes = { ...CALL, notes: "Déjà noté" } as CallDTO;
+    render(<QualifyCallModal call={callWithNotes} statuses={STATUSES} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByLabelText("Notes")).toHaveValue("Déjà noté");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "RAPPEL" } });
+
+    fireEvent.change(screen.getByLabelText("Date de rappel"), { target: { value: "2026-11-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer" }));
+    await vi.waitFor(() => expect(changeCallStatus).toHaveBeenCalledTimes(1));
+    expect(changeCallStatus.mock.calls[0]![1]).not.toHaveProperty("notes");
+  });
+});

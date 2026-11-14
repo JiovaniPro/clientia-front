@@ -130,28 +130,79 @@ html:has([data-landing]) {
   animation: landing-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) var(--delay, 0ms) both;
 }
 
-/* Landing — onde sonore de la carte « Appel en cours » : barres qui respirent (transform seul). */
-@keyframes landing-wave {
-  0%,
-  100% {
-    transform: scaleY(0.45);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-.landing-wave {
-  animation: landing-wave 1100ms ease-in-out infinite;
-  transform-origin: center;
-}
-
 @media (prefers-reduced-motion: reduce) {
   html:has([data-landing]) {
     scroll-behavior: auto;
   }
-  .landing-rise,
-  .landing-wave {
+  .landing-rise {
     animation: none;
   }
+}
+
+/*
+ * App — apparition d'un élément déclenché par une action (barre de sélection groupée, panneau de filtres,
+ * confirmation) : même glissé + fondu que la landing, en 180 ms. État final par défaut (`both`).
+ */
+.app-rise {
+  animation: landing-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-rise {
+    animation: none;
+  }
+}
+
+/*
+ * App connectée : une seule famille (Inter) pour toute l'interface, titres compris — Fraunces reste la voix de
+ * marque de la landing et des pages publiques. Redéfinir --font-display ici bascule d'un coup tous les
+ * `font-display` de l'app (titres de page, modales, sections) sans toucher aux composants.
+ */
+/* App — tiroir latéral (notifications) : le fond apparaît en fondu, le panneau glisse depuis la droite. */
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes app-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+.app-fade {
+  animation: app-fade-in 180ms ease-out both;
+}
+
+.app-drawer {
+  animation: app-drawer-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-fade,
+  .app-drawer {
+    animation: none;
+  }
+}
+
+/*
+ * Pages publiques hors landing (connexion) : même police de titrage que la landing (Gravitas One, une seule graisse,
+ * components/brand/displayFont.ts) à la place de Fraunces.
+ */
+.brand-type {
+  --font-display: var(--font-landing);
+}
+
+.brand-type .font-display {
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.app-type {
+  --font-display: var(--font-sans);
+}
+
+.app-type .font-display {
+  letter-spacing: -0.015em;
 }

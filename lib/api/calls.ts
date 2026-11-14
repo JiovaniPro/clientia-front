@@ -4,6 +4,16 @@ import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 export type CallDirection = "INBOUND" | "OUTBOUND";
 export type CallType = "PROSPECTION" | "SUPPORT" | "FOLLOW_UP" | "OTHER";
 
+export const CALL_TYPES: CallType[] = ["PROSPECTION", "SUPPORT", "FOLLOW_UP", "OTHER"];
+
+/** Libellés affichés — la valeur brute (enum backend) ne doit jamais apparaître à l'écran. */
+export const CALL_TYPE_LABELS: Record<CallType, string> = {
+  PROSPECTION: "Prospection",
+  SUPPORT: "Support",
+  FOLLOW_UP: "Relance",
+  OTHER: "Autre",
+};
+
 export interface CallDTO {
   id: string;
   userId: string;
@@ -101,6 +111,8 @@ export interface ChangeCallStatusInput {
   statusKey: string;
   recallDate?: string;
   recallTimeSlot?: string;
+  /** Absent = notes inchangées ; "" = notes effacées. */
+  notes?: string;
 }
 
 export interface ChangeCallStatusResponse {

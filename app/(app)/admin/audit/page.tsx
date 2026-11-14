@@ -10,6 +10,7 @@ import { AUDIT_ACTION_LABELS, listAuditLogs } from "@/lib/api/auditLogs";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 const PAGE_SIZE = 50;
 
@@ -97,10 +98,9 @@ export default function AdminAuditPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Administration</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Journal d&apos;audit</h1>
+        <PageTitle parent="Administration">Journal d&apos;audit</PageTitle>
         <p className="text-sm text-ink-muted">Qui a fait quoi dans l&apos;organisation, du plus récent au plus ancien.</p>
       </header>
 

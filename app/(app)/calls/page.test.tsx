@@ -10,7 +10,8 @@ const reassignCall = vi.fn();
 const reassignCalls = vi.fn();
 let permissions: string[] = [];
 
-vi.mock("@/lib/api/calls", () => ({
+vi.mock("@/lib/api/calls", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/calls")>()),
   listCalls: (...a: unknown[]) => listCalls(...a),
   deleteCall: (...a: unknown[]) => deleteCall(...a),
   reassignCall: (...a: unknown[]) => reassignCall(...a),
@@ -162,9 +163,28 @@ describe("/calls — attribution d'un appel par l'admin", () => {
 
     fireEvent.change(select, { target: { value: "agent-b" } });
 
+    // Lot UX 2 point 13 : confirmation avant l'attribution, plus d'effet immédiat.
+    expect(reassignCall).not.toHaveBeenCalled();
+    expect(screen.getByText("Changer d'agent")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Attribuer" }));
+
     await waitFor(() => expect(reassignCall).toHaveBeenCalledWith("1", "agent-b", "tok"));
     expect(await screen.findByText("1 appel attribué à Ben Calliste.")).toBeInTheDocument();
     expect(listCalls).toHaveBeenCalledTimes(2); // liste rechargée
+  });
+
+  it("sélecteur par ligne : Annuler la confirmation ne réattribue rien et le select garde l'agent actuel", async () => {
+    permissions = ["calls.view", "calls.viewAll"];
+    render(<CallsPage />);
+    const select = await screen.findByLabelText("Agent de l'appel +331");
+    await waitFor(() => expect(within(select).getByRole("option", { name: "Ben Calliste" })).toBeInTheDocument());
+
+    fireEvent.change(select, { target: { value: "agent-b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Annuler" }));
+
+    expect(screen.queryByText("Changer d'agent")).not.toBeInTheDocument();
+    expect(reassignCall).not.toHaveBeenCalled();
+    expect(select).toHaveValue("admin-1");
   });
 
   it("sélection multiple : « Tout sélectionner » puis « Attribuer à… » réattribue tout d'un coup", async () => {

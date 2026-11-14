@@ -8,14 +8,14 @@ import { isAgentRdvNavProfile } from "@/lib/nav/navItems";
 
 /**
  * Aiguillage de `/` : visiteur → landing ; connecté → son écran de départ (Agent RDV :
- * tableau de bord, sinon /today). La session n'est connue que côté client (voir
+ * tableau de bord, sinon /my-stats — "Aujourd'hui" retiré de la nav). La session n'est connue que côté client (voir
  * app/(app)/layout.tsx) : tant qu'elle n'est pas tranchée, écran neutre — jamais la
  * landing, pour qu'un utilisateur connecté ne la voie pas clignoter avant la redirection.
  */
 export default function RootPage() {
   const { user, isLoading, hasPermission } = useAuth();
   const router = useRouter();
-  const home = user ? (isAgentRdvNavProfile(hasPermission) ? "/agent-rdv/dashboard" : "/today") : null;
+  const home = user ? (isAgentRdvNavProfile(hasPermission) ? "/agent-rdv/dashboard" : "/my-stats") : null;
 
   useEffect(() => {
     if (home) router.replace(home);

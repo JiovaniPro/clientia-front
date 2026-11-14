@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { asksForRecallDate, createCall } from "@/lib/api/calls";
+import { asksForRecallDate, CALL_TYPE_LABELS, CALL_TYPES, createCall } from "@/lib/api/calls";
 import type { CallDTO, CallDirection, CallType } from "@/lib/api/calls";
 import { ApiError } from "@/lib/api/client";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
@@ -18,7 +18,6 @@ interface NewCallModalProps {
   onCreated: (call: CallDTO) => void;
 }
 
-const CALL_TYPES: CallType[] = ["PROSPECTION", "SUPPORT", "FOLLOW_UP", "OTHER"];
 
 /** §5.5 — saisie manuelle d'un appel (hors import). Mêmes règles conditionnelles que la qualification. */
 export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps) {
@@ -100,7 +99,7 @@ export function NewCallModal({ statuses, onClose, onCreated }: NewCallModalProps
           <Select label="Type" value={type} onChange={(e) => setType(e.target.value as CallType)}>
             {CALL_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {CALL_TYPE_LABELS[t]}
               </option>
             ))}
           </Select>

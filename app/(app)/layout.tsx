@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ReminderPopupListener } from "@/components/shell/ReminderPopupListener";
-import { SideRail } from "@/components/shell/SideRail";
+import { AppChrome } from "@/components/shell/AppChrome";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isAgentRdvNavProfile } from "@/lib/nav/navItems";
 
@@ -39,9 +39,8 @@ export default function AppShellLayout({ children }: LayoutProps<"/">) {
   }
 
   return (
-    <div className="flex h-screen">
-      <SideRail />
-      <main className="flex-1 overflow-y-auto bg-cream">{children}</main>
+    <div className="app-type flex h-screen">
+      <AppChrome>{children}</AppChrome>
       <CommandPalette />
       <ReminderPopupListener />
     </div>

@@ -34,9 +34,8 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
   const [templates, setTemplates] = useState<EmailTemplateDTO[]>([]);
   const [templateKey, setTemplateKey] = useState("");
   const [preview, setPreview] = useState<EmailPreviewDTO | null>(null);
-  // Copie éditable de l'aperçu — c'est elle qui part, pas le rendu brut du modèle.
+  // Copie éditable de l'objet — c'est elle qui part. Le corps, lui, vient du modèle (e-mail HTML : on ne l'édite pas ici).
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -64,7 +63,6 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
         if (cancelled) return;
         setPreview(result);
         setSubject(result.subject);
-        setBody(result.body);
       })
       .catch((err) => {
         if (!cancelled) setPreviewError(err instanceof ApiError ? err.message : "Aperçu indisponible.");
@@ -82,7 +80,7 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
     setSendError(null);
     setIsSending(true);
     try {
-      const history = await authedFetch((token) => sendEmail({ clientId, templateKey, subject, body }, token));
+      const history = await authedFetch((token) => sendEmail({ clientId, templateKey, subject }, token));
       setSentResult(history);
       onSent(history);
     } catch (err) {
@@ -93,7 +91,7 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
   }
 
   return (
-    <Modal title="Envoyer un e-mail" onClose={onClose} closeDisabled={isSending} widthClassName="max-w-lg">
+    <Modal title="Envoyer un e-mail" onClose={onClose} closeDisabled={isSending} widthClassName="max-w-2xl">
       <div className="space-y-4">
         {!clientEmail ? (
           <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
@@ -139,7 +137,7 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
             {templateKey ? (
               <div className="space-y-2 rounded-md border border-border bg-surface-subtle p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
-                  Aperçu — modifiable avant envoi
+                  Aperçu — l&apos;objet est modifiable avant envoi
                 </p>
                 {isLoadingPreview ? (
                   <p className="text-sm text-ink-muted">Chargement de l&apos;aperçu…</p>
@@ -148,18 +146,13 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
                 ) : preview ? (
                   <div className="space-y-3">
                     <Input label="Objet" value={subject} onChange={(e) => setSubject(e.target.value)} />
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="send-email-body" className="text-sm font-medium text-ink">
-                        Message
-                      </label>
-                      <textarea
-                        id="send-email-body"
-                        value={body}
-                        onChange={(e) => setBody(e.target.value)}
-                        rows={8}
-                        className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-forest-600 focus:border-forest-600"
-                      />
-                    </div>
+                    {/* L'e-mail tel qu'il sera reçu, dans un cadre isolé (aucun script, aucun style qui fuit). */}
+                    <iframe
+                      title="Aperçu de l'e-mail"
+                      sandbox=""
+                      srcDoc={preview.html}
+                      className="h-[26rem] w-full rounded-md border border-border bg-white"
+                    />
                   </div>
                 ) : null}
               </div>
@@ -171,7 +164,7 @@ export function SendEmailModal({ clientId, clientEmail, onClose, onSent }: SendE
               <Button variant="secondary" onClick={onClose} disabled={isSending}>
                 Annuler
               </Button>
-              <Button onClick={handleSend} disabled={!templateKey || !preview || !subject.trim() || !body.trim() || isSending}>
+              <Button onClick={handleSend} disabled={!templateKey || !preview || !subject.trim() || isSending}>
                 {isSending ? "Envoi…" : "Envoyer"}
               </Button>
             </div>

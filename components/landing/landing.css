@@ -1,0 +1,334 @@
+/*
+ * Landing — mouvement et couleurs propres à la page publique. Tout est limité à [data-landing]
+ * ou préfixé lp- : rien ne fuit dans l'app connectée.
+ *
+ * Vert profond FIXE dans les deux thèmes (bloc contact) : dérivé du vert du logo (#083529),
+ * pas une valeur du brief. Contrastes sur --lp-deep : texte clair 13:1, atténué 8:1, braise 5,3:1.
+ */
+[data-landing] {
+  --lp-deep: #0b3327;
+  --lp-deep-raise: #114636;
+  --lp-on-deep: #f6f4ef;
+  --lp-on-deep-muted: #b9cfc5;
+  --lp-on-deep-line: rgb(246 244 239 / 0.16);
+  --lp-ember: #e8895a;
+  --lp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  interpolate-size: allow-keywords;
+  /* Titrage de la landing : Gravitas One (components/brand/displayFont.ts) à la place de Fraunces. */
+  --font-display: var(--font-landing);
+}
+
+/* Gravitas One n'a qu'une graisse : 400 partout, pour ne jamais déclencher de faux gras. */
+[data-landing] .font-display {
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+[data-landing] .lp-h1 {
+  letter-spacing: -0.015em;
+}
+
+/* La police de titrage n'a pas d'italique : l'accent passe par la couleur. */
+[data-landing] em {
+  font-style: normal;
+}
+
+/* ---------- Héros : entrée orchestrée ---------- */
+
+/* Titre : chaque ligne monte derrière un masque. Le padding/marge négatifs laissent passer les jambages. */
+.lp-line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.16em;
+  margin-bottom: -0.16em;
+}
+
+.lp-line > span {
+  display: block;
+  animation: lp-line 950ms var(--lp-ease) var(--d, 0ms) both;
+}
+
+@keyframes lp-line {
+  from {
+    transform: translateY(108%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.lp-up {
+  animation: lp-up 750ms var(--lp-ease) var(--d, 0ms) both;
+}
+
+@keyframes lp-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lp-window {
+  animation: lp-window 1200ms var(--lp-ease) 380ms both;
+}
+
+@keyframes lp-window {
+  from {
+    opacity: 0;
+    transform: translateY(56px) scale(0.955);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* Fenêtre produit : légère inclinaison sous le pointeur (--rx/--ry posés par HeroDemo). */
+.lp-tilt {
+  --rx: 0deg;
+  --sc: 1;
+  transform: perspective(1800px) rotateX(var(--rx)) rotateY(var(--ry, 0deg)) scale(var(--sc));
+  transform-origin: center top;
+  transition: transform 260ms ease-out;
+}
+
+/* Trame de points du panneau du héros, estompée vers les bords par un masque. */
+.lp-dots {
+  background-image: radial-gradient(circle, var(--color-ink-faint) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+  opacity: 0.5;
+  /* Estompée sur tous les bords : aucune couture avec l'en-tête ni avec la section suivante. */
+  mask-image: radial-gradient(ellipse 62% 58% at 50% 46%, #000 20%, transparent 100%);
+}
+
+/* Pointillés du héros : les points glissent du logo vers les étiquettes. */
+.lp-flow {
+  animation: lp-flow 1.1s linear infinite;
+}
+
+@keyframes lp-flow {
+  to {
+    stroke-dashoffset: -9.1;
+  }
+}
+
+/* Éléments en suspension (étiquettes, cartes, tuiles) : lente respiration verticale. */
+.lp-float {
+  animation: lp-float 7s ease-in-out infinite;
+}
+
+@keyframes lp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+/* Tracés (chaîne du logo, trait sous le mot-clé du titre) : chacun se dessine à son tour. */
+.lp-draw {
+  stroke-dasharray: 1;
+  animation: lp-draw 700ms cubic-bezier(0.65, 0, 0.35, 1) var(--d, 0ms) both;
+}
+
+@keyframes lp-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---------- Démo du héros ---------- */
+
+.lp-cursor {
+  transition: transform 850ms cubic-bezier(0.45, 0, 0.15, 1), opacity 300ms ease-out;
+}
+
+.lp-cursor[data-press="true"]::after {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-forest-600);
+  animation: lp-press 520ms ease-out both;
+}
+
+@keyframes lp-press {
+  from {
+    opacity: 0.9;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.lp-menu {
+  transform-origin: top right;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+.lp-menu[data-open="false"] {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+}
+
+.lp-panel {
+  transition: transform 650ms var(--lp-ease), opacity 300ms ease-out;
+}
+
+.lp-panel[data-open="false"] {
+  opacity: 0;
+  transform: translateX(104%);
+}
+
+.lp-pop {
+  transition: opacity 400ms ease-out, transform 500ms var(--lp-ease);
+}
+
+.lp-pop[data-open="false"] {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+}
+
+.lp-row-flash {
+  animation: lp-row-flash 1400ms ease-out both;
+}
+
+@keyframes lp-row-flash {
+  from {
+    background-color: color-mix(in srgb, #16a34a 26%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* ---------- Apparition au défilement (Reveal, motion.ts) ---------- */
+
+/* Visible par défaut : « armed » n'est posé par le script que sur ce qui est encore hors écran. */
+[data-reveal="armed"] {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+[data-reveal="in"] {
+  animation: lp-up 850ms var(--lp-ease) both;
+}
+
+/* ---------- Parcours : scènes ---------- */
+
+.lp-scene {
+  transition: opacity 420ms ease-out, transform 600ms var(--lp-ease);
+}
+
+.lp-scene[data-active="false"] {
+  opacity: 0;
+  transform: translateY(14px) scale(0.985);
+  pointer-events: none;
+}
+
+[data-active="true"] .lp-stagger > * {
+  animation: lp-up 620ms var(--lp-ease) calc(var(--i, 0) * 95ms + 180ms) both;
+}
+
+[data-active="true"] .lp-drop {
+  animation: lp-drop 780ms var(--lp-ease) 120ms both;
+}
+
+@keyframes lp-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-34px) rotate(-5deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-active="true"] .lp-bar {
+  animation: lp-bar 1100ms cubic-bezier(0.65, 0, 0.35, 1) 520ms both;
+}
+
+@keyframes lp-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+[data-active="true"] .lp-event {
+  animation: lp-event 700ms var(--lp-ease) 350ms both;
+}
+
+@keyframes lp-event {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0);
+  }
+}
+
+/* Rail du parcours : la chaîne du logo, remplie par le défilement (--fill posé par Journey). */
+.lp-rail-fill {
+  /* Deux aplats (arrêt net, pas de dégradé) : le dernier tiers est terracotta, comme le logo. */
+  background: linear-gradient(90deg, var(--color-forest-600) 66.66%, var(--color-terracotta-500) 66.66%);
+  clip-path: inset(0 calc((1 - var(--fill, 0)) * 100%) 0 0);
+  transition: clip-path 220ms linear;
+}
+
+.lp-swap {
+  animation: lp-up 480ms var(--lp-ease) both;
+}
+
+/* ---------- FAQ : ouverture animée là où le navigateur le permet ---------- */
+
+.lp-faq::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size 380ms var(--lp-ease), content-visibility 380ms allow-discrete;
+}
+
+.lp-faq[open]::details-content {
+  block-size: auto;
+}
+
+/* ---------- Mouvement réduit : tout est posé dans son état final ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-landing] *,
+  [data-landing] *::before,
+  [data-landing] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  [data-reveal="armed"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .lp-tilt {
+    transform: none;
+  }
+}

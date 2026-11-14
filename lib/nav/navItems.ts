@@ -6,7 +6,6 @@ import {
   Building2,
   CalendarDays,
   History,
-  Home,
   KeyRound,
   LineChart,
   ListChecks,
@@ -35,10 +34,22 @@ export interface NavItem {
   paletteLabel: string;
   icon: LucideIcon;
   permission?: string | string[];
+  /** Groupe d'affichage dans le rail. Absent = travail quotidien (en haut, sans libellé). */
+  section?: "admin";
+  /** Absent du rail latéral (la palette Cmd+K le garde) : les notifications passent par la cloche de la barre du haut. */
+  hideInRail?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/today", label: "Aujourd'hui", paletteLabel: "Aller à l'accueil", icon: Home },
+  {
+    href: "/my-stats",
+    label: "Mes statistiques",
+    paletteLabel: "Aller à mes statistiques",
+    icon: LineChart,
+    // §5.17 — accès à ses propres stats (Agent calliste/RDV inclus) ; le sélecteur
+    // d'agent dans l'écran lui-même n'apparaît qu'avec reports.viewAll en plus.
+    permission: "reports.view",
+  },
   { href: "/calls", label: "Appels", paletteLabel: "Aller à la file d'appels", icon: Phone, permission: "calls.view" },
   {
     href: "/history",
@@ -74,18 +85,11 @@ export const NAV_ITEMS: NavItem[] = [
     paletteLabel: "Aller à mes notifications",
     icon: Bell,
     permission: "notifications.view",
-  },
-  {
-    href: "/my-stats",
-    label: "Mes statistiques",
-    paletteLabel: "Aller à mes statistiques",
-    icon: LineChart,
-    // §5.17 — accès à ses propres stats (Agent calliste/RDV inclus) ; le sélecteur
-    // d'agent dans l'écran lui-même n'apparaît qu'avec reports.viewAll en plus.
-    permission: "reports.view",
+    hideInRail: true,
   },
   {
     href: "/admin/users",
+    section: "admin",
     label: "Utilisateurs",
     paletteLabel: "Aller à l'administration des utilisateurs",
     icon: Shield,
@@ -100,6 +104,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/roles",
+    section: "admin",
     label: "Rôles & permissions",
     paletteLabel: "Aller à l'administration des rôles et permissions",
     icon: KeyRound,
@@ -107,6 +112,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/configurable-lists",
+    section: "admin",
     label: "Listes configurables",
     paletteLabel: "Aller à l'administration des listes configurables",
     icon: ListChecks,
@@ -114,6 +120,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/custom-fields",
+    section: "admin",
     label: "Champs personnalisés",
     paletteLabel: "Aller à l'administration des champs personnalisés",
     icon: SlidersHorizontal,
@@ -131,6 +138,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/organization",
+    section: "admin",
     label: "Organisation",
     paletteLabel: "Aller aux paramètres de l'organisation",
     icon: Building2,
@@ -138,6 +146,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/dashboard",
+    section: "admin",
     label: "Tableau de bord",
     paletteLabel: "Aller au tableau de bord",
     icon: BarChart3,
@@ -147,6 +156,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/admin/audit",
+    section: "admin",
     label: "Journal d'audit",
     paletteLabel: "Aller au journal d'audit",
     icon: ScrollText,
@@ -178,13 +188,6 @@ export const AGENT_RDV_NAV_ITEMS: NavItem[] = [
     permission: "reports.view",
   },
   {
-    href: "/agent-rdv/dashboard/details",
-    label: "Détail du suivi",
-    paletteLabel: "Aller au détail du suivi",
-    icon: LineChart,
-    permission: "reports.view",
-  },
-  {
     href: "/agent-rdv/clients",
     label: "Mes clients",
     paletteLabel: "Aller à mes clients",
@@ -211,6 +214,7 @@ export const AGENT_RDV_NAV_ITEMS: NavItem[] = [
     paletteLabel: "Aller à mes notifications",
     icon: Bell,
     permission: "notifications.view",
+    hideInRail: true,
   },
   // "Mon compte" n'est PAS répété ici : le lien fixe en bas du rail (SideRail.tsx,
   // §5.11) est déjà présent pour tous les rôles, y compris avec cette nav swappée.

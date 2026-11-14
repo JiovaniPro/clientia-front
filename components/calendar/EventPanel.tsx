@@ -219,6 +219,10 @@ export function EventPanel({
    * admin, qui passe par « Déléguer ».
    */
   const isAssignedAgentRdv = Boolean(event && user && event.agentRdvId === user.id);
+  /** Miroir de deleteEvent côté backend : un RDV (agent RDV impliqué) ne se supprime pas par l'organisateur, il s'annule. */
+  const canDeleteThisEvent =
+    canWriteThisEvent &&
+    (!(event?.type === "APPOINTMENT" || event?.agentRdvId) || isAssignedAgentRdv || hasPermission("calendar.viewAll"));
 
   /**
    * Suivi honoré/manqué — contrôle strict du backend (markAppointmentAttendance) :
@@ -299,6 +303,7 @@ export function EventPanel({
     markedBy: event?.attendanceMarkedBy ?? null,
   });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
 
   /**
@@ -526,7 +531,7 @@ export function EventPanel({
    * déclenché par "Fermer"/X) qui rafraîchit déjà la grille dans tous les cas,
    * même pattern que la réponse à une invitation juste en dessous.
    */
-  async function handleChangeAppointmentStatus(status: "CONFIRME" | "REFUSE") {
+  async function handleChangeAppointmentStatus(status: "CONFIRME" | "REFUSE" | "ANNULE") {
     if (!event) return;
     setError(null);
     setAppointmentStatusNotice(null);
@@ -544,11 +549,14 @@ export function EventPanel({
       setAppointmentStatus(updated.status);
       setShowRefuseReason(false);
       setRefuseReason("");
-      setAppointmentStatusNotice(status === "CONFIRME" ? "Rendez-vous confirmé." : "Rendez-vous refusé.");
+      setAppointmentStatusNotice(
+        { CONFIRME: "Rendez-vous confirmé.", REFUSE: "Rendez-vous refusé.", ANNULE: "Rendez-vous annulé." }[status],
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Impossible de mettre à jour le statut du rendez-vous.");
     } finally {
       setIsChangingAppointmentStatus(false);
+      setShowCancelConfirm(false);
     }
   }
 
@@ -793,7 +801,7 @@ export function EventPanel({
             {isEdit && event && event.type !== type ? (
               <p className="text-xs text-status-warning">
                 {type === "APPOINTMENT"
-                  ? "Devient un rendez-vous à l'enregistrement — un appel rattaché est requis, §P0.5 sera vérifié."
+                  ? "Devient un rendez-vous à l'enregistrement — un appel rattaché est requis."
                   : event.type === "APPOINTMENT"
                     ? "N'est plus un rendez-vous à l'enregistrement — statut et agent RDV seront effacés."
                     : null}
@@ -1317,6 +1325,24 @@ export function EventPanel({
               </div>
             ) : null}
 
+            {/* Annulation : agent RDV / admin (canManageAppointmentStatus) ou organisateur, comme
+                changeAppointmentStatus côté backend (sans manageAppointments : ANNULE sur ses RDV). */}
+            {isEdit &&
+            event?.type === "APPOINTMENT" &&
+            (canManageAppointmentStatus || isOrganizer) &&
+            (appointmentStatus === "EN_ATTENTE_DE_CONFIRMATION" || appointmentStatus === "CONFIRME") ? (
+              <div>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => setShowCancelConfirm(true)}
+                  disabled={isChangingAppointmentStatus}
+                >
+                  Annuler le rendez-vous
+                </Button>
+              </div>
+            ) : null}
+
             {/* Suivi honoré/manqué — état visible par tout lecteur du RDV ; marquage et
                 correction seulement sur un RDV confirmé terminé, pour l'agent assigné ou viewAll. */}
             {attendance.attended !== null ? (
@@ -1401,7 +1427,7 @@ export function EventPanel({
             {agentRdvId && agentBusyCount !== null ? (
               <p
                 className={`text-xs font-medium ${agentBusyCount > 0 ? "text-status-danger" : "text-forest-600"}`}
-                title="Compteur agrégé sur ce créneau uniquement — §P1.1 : jamais le détail des événements de l'agent, pour préserver la confidentialité de son agenda personnel."
+                title="Seul le nombre de rendez-vous est indiqué : le détail de l'agenda de l'agent reste confidentiel."
               >
                 {agentBusyCount > 0
                   ? `Occupé — ${agentBusyCount} rendez-vous déjà actif${agentBusyCount > 1 ? "s" : ""} sur ce créneau`
@@ -1409,8 +1435,8 @@ export function EventPanel({
               </p>
             ) : null}
             <p className="text-xs text-ink-muted">
-              §P0.5 : un seul rendez-vous actif par appel, pas de chevauchement pour un même agent RDV — vérifié par le
-              backend à l'enregistrement.
+              Un appel ne peut avoir qu&apos;un seul rendez-vous actif, et un agent RDV ne peut pas avoir deux rendez-vous
+              en même temps.
             </p>
           </div>
         ) : null}
@@ -1422,7 +1448,7 @@ export function EventPanel({
               exige EN PLUS la propriété de l'événement (assertCanWriteEvent, même
               gate que l'écriture) — même bug que canWriteThisEvent ci-dessus,
               corrigé ici pour la même raison. */}
-          {isEdit && canDelete && canWriteThisEvent ? (
+          {isEdit && canDelete && canDeleteThisEvent ? (
             <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isSubmitting}>
               Supprimer
             </Button>
@@ -1454,6 +1480,18 @@ export function EventPanel({
           onConfirm={handleDelete}
           onClose={() => setShowDeleteConfirm(false)}
           isConfirming={isSubmitting}
+        />
+      ) : null}
+
+      {showCancelConfirm ? (
+        <ConfirmModal
+          title="Annuler ce rendez-vous"
+          message="Le rendez-vous passera au statut « Annulé »."
+          confirmLabel="Annuler le rendez-vous"
+          cancelLabel="Garder le rendez-vous"
+          onConfirm={() => handleChangeAppointmentStatus("ANNULE")}
+          onClose={() => setShowCancelConfirm(false)}
+          isConfirming={isChangingAppointmentStatus}
         />
       ) : null}
     </>

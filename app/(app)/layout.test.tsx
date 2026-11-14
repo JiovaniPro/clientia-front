@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }), usePathname:
 vi.mock("@/lib/auth/AuthContext", () => ({
   useAuth: () => ({ user: auth.user, isLoading: auth.isLoading, hasPermission: (k: string) => auth.permissions.includes(k) }),
 }));
-vi.mock("@/components/shell/SideRail", () => ({ SideRail: () => null }));
+vi.mock("@/components/shell/AppChrome", () => ({ AppChrome: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shell/CommandPalette", () => ({ CommandPalette: () => null }));
 vi.mock("@/components/shell/ReminderPopupListener", () => ({ ReminderPopupListener: () => null }));
 

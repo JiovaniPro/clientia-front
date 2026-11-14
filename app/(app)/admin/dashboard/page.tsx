@@ -1,6 +1,7 @@
 "use client";
 
 import { ReportsOverview } from "@/components/reports/ReportsOverview";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 /**
  * §5.15 — tableau de bord admin, vue globale de l'organisation. Réservé à
@@ -9,10 +10,9 @@ import { ReportsOverview } from "@/components/reports/ReportsOverview";
  */
 export default function AdminDashboardPage() {
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-8">
+    <div className="space-y-6 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Administration</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Tableau de bord</h1>
+        <PageTitle parent="Administration">Tableau de bord</PageTitle>
       </header>
 
       <ReportsOverview />

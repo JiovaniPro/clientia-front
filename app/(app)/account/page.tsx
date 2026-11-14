@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import { changePassword, updateMe } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useUnsavedChangesGuard } from "@/lib/forms/useUnsavedChangesGuard";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 /**
  * §5.11 — écran "Mon compte", accessible à tout utilisateur connecté (aucune
@@ -20,10 +21,9 @@ export default function AccountPage() {
   const { user } = useAuth();
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-8">
+    <div className="space-y-6 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.11</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Mon compte</h1>
+        <PageTitle parent="Compte">Mon compte</PageTitle>
       </header>
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-flat">
@@ -35,8 +35,11 @@ export default function AccountPage() {
         </dl>
       </div>
 
-      <InfoSection />
-      <PasswordSection />
+      {/* Pleine largeur : les deux formulaires côte à côte sur grand écran, empilés sinon. */}
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        <InfoSection />
+        <PasswordSection />
+      </div>
     </div>
   );
 }

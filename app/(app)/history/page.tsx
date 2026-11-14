@@ -5,15 +5,22 @@ import { CallDetailModal } from "@/components/calls/CallDetailModal";
 import { WaveBadge } from "@/components/calls/WaveBadge";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { PhoneLink } from "@/components/ui/PhoneLink";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
+import { ActiveFilters, type ActiveFilter } from "@/components/ui/ActiveFilters";
+import { CLICKABLE_ROW_CLASS, clickableRowProps } from "@/components/ui/clickableRow";
+import { EmptyState, LoadError, TableSkeleton } from "@/components/ui/ListStates";
+import Link from "next/link";
+import { cn } from "@/lib/cn";
 import type { CallDTO, CallType, ListCallsFilters } from "@/lib/api/calls";
-import { listCalls } from "@/lib/api/calls";
+import { CALL_TYPE_LABELS, CALL_TYPES, listCalls } from "@/lib/api/calls";
 import type { ConfigurableListItemDTO } from "@/lib/api/configurableLists";
 import { getConfigurableList } from "@/lib/api/configurableLists";
 import type { UserListItemDTO } from "@/lib/api/users";
 import { listUsers } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PageTitle } from "@/components/ui/PageTitle";
 
 function personLabel(p: { firstName: string | null; lastName: string | null } | null | undefined, fallback: string) {
   if (!p) return fallback;
@@ -21,7 +28,6 @@ function personLabel(p: { firstName: string | null; lastName: string | null } | 
 }
 
 const PAGE_SIZE = 25;
-const CALL_TYPES: CallType[] = ["PROSPECTION", "SUPPORT", "FOLLOW_UP", "OTHER"];
 
 function formatOccurredAt(iso: string) {
   return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
@@ -57,6 +63,8 @@ export default function CallHistoryPage() {
   const [search, setSearch] = useState("");
 
   const [detailCallId, setDetailCallId] = useState<string | null>(null);
+  /** Incrémenté par "Réessayer" quand c'est le chargement des statuts qui a échoué. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   const neutralStatusKey = statuses.find((s) => s.isDefault)?.key;
   const treatedStatuses = statuses.filter((s) => !s.isDefault);
@@ -70,7 +78,7 @@ export default function CallHistoryPage() {
     authedFetch((token) => getConfigurableList("CALL_STATUS", token))
       .then(setStatuses)
       .catch(() => setError("Impossible de charger les statuts."));
-  }, [authedFetch]);
+  }, [authedFetch, reloadKey]);
 
   useEffect(() => {
     // §5.18 — la liste des agents (pour le filtre) n'a de sens qu'avec calls.viewAll ;
@@ -118,13 +126,51 @@ export default function CallHistoryPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  function retry() {
+    setError(null);
+    if (statuses.length === 0) setReloadKey((k) => k + 1);
+    fetchCalls();
+  }
+
+  function resetFilters() {
+    setStatusKey("");
+    setType("");
+    setWaveNumber("");
+    setFrom("");
+    setTo("");
+    setAgentId("");
+    setSearchInput("");
+    setSearch("");
+  }
+
+  const selectedStatus = treatedStatuses.find((s) => s.key === statusKey);
+  const selectedAgent = agents.find((a) => a.id === agentId);
+  const activeFilters: ActiveFilter[] = [
+    ...(search ? [{ key: "search", label: `Recherche : ${search}`, onRemove: () => setSearchInput("") }] : []),
+    ...(statusKey
+      ? [{ key: "status", label: `Statut : ${selectedStatus?.label ?? statusKey}`, onRemove: () => setStatusKey("") }]
+      : []),
+    ...(type ? [{ key: "type", label: `Type : ${CALL_TYPE_LABELS[type as CallType]}`, onRemove: () => setType("") }] : []),
+    ...(agentId
+      ? [
+          {
+            key: "agent",
+            label: `Agent : ${selectedAgent ? personLabel(selectedAgent, selectedAgent.email) : "—"}`,
+            onRemove: () => setAgentId(""),
+          },
+        ]
+      : []),
+    ...(waveNumber ? [{ key: "wave", label: `Vague : ${waveNumber}`, onRemove: () => setWaveNumber("") }] : []),
+    ...(from ? [{ key: "from", label: `Du : ${from.split("-").reverse().join("/")}`, onRemove: () => setFrom("") }] : []),
+    ...(to ? [{ key: "to", label: `Au : ${to.split("-").reverse().join("/")}`, onRemove: () => setTo("") }] : []),
+  ];
+
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-8">
+    <div className="space-y-5 p-6">
       <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">§5.6</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Journal des appels</h1>
+        <PageTitle parent="Prospection">Journal des appels</PageTitle>
         <p className="text-sm text-ink-muted">
-          Tous les appels déjà traités (tout statut sauf le neutre), lecture seule.
+          Tous les appels déjà qualifiés, avec leur dernier statut.
         </p>
       </header>
 
@@ -138,7 +184,7 @@ export default function CallHistoryPage() {
           />
         </div>
         <Select label="Statut" value={statusKey} onChange={(e) => setStatusKey(e.target.value)} className="w-44">
-          <option value="">Tous (sauf neutre)</option>
+          <option value="">Tous les statuts traités</option>
           {treatedStatuses.map((s) => (
             <option key={s.id} value={s.key}>
               {s.label}
@@ -149,7 +195,7 @@ export default function CallHistoryPage() {
           <option value="">Tous</option>
           {CALL_TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {CALL_TYPE_LABELS[t]}
             </option>
           ))}
         </Select>
@@ -175,15 +221,36 @@ export default function CallHistoryPage() {
         <Input label="Au" type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
       </div>
 
+      <ActiveFilters filters={activeFilters} onReset={resetFilters} />
+
       <div className="rounded-lg border border-border bg-surface shadow-flat">
         {error ? (
-          <p className="p-6 text-sm text-status-danger">{error}</p>
-        ) : isLoading ? (
-          <p className="p-6 text-sm text-ink-muted">Chargement…</p>
+          <LoadError message={error} onRetry={retry} />
+        ) : isLoading && calls.length === 0 ? (
+          <TableSkeleton columns={canViewAll ? 8 : 7} />
         ) : calls.length === 0 ? (
-          <p className="p-6 text-sm text-ink-muted">Aucun appel ne correspond à ces filtres.</p>
+          activeFilters.length > 0 ? (
+            <EmptyState
+              title="Aucun appel ne correspond à ces filtres."
+              action={
+                <Button size="sm" variant="secondary" onClick={resetFilters}>
+                  Réinitialiser les filtres
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="Aucun appel qualifié pour l'instant."
+              description="Un appel apparaît ici dès qu'il est qualifié depuis la file À appeler."
+              action={
+                <Link href="/calls" className={buttonClassName({ variant: "secondary", size: "sm" })}>
+                  Aller à la file À appeler →
+                </Link>
+              }
+            />
+          )
         ) : (
-          <table className="w-full text-sm">
+          <table className={cn("w-full text-sm transition-opacity", isLoading && "opacity-60")} aria-busy={isLoading}>
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Vague</th>
@@ -198,15 +265,19 @@ export default function CallHistoryPage() {
             </thead>
             <tbody>
               {calls.map((call) => (
-                <tr key={call.id} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+                <tr
+                  key={call.id}
+                  className={cn("border-b border-border last:border-0 hover:bg-surface-subtle", CLICKABLE_ROW_CLASS)}
+                  {...clickableRowProps(() => setDetailCallId(call.id))}
+                >
                   <td className="px-4 py-2.5">
                     <WaveBadge waveNumber={call.waveNumber} />
                   </td>
                   <td className="px-4 py-2.5 text-ink">
                     {call.firstName || call.lastName ? `${call.firstName ?? ""} ${call.lastName ?? ""}`.trim() : "—"}
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-forest-600">{call.toNumber}</td>
-                  <td className="px-4 py-2.5 text-ink-muted">{call.type}</td>
+                  <td className="px-4 py-2.5"><PhoneLink number={call.toNumber} /></td>
+                  <td className="px-4 py-2.5 text-ink-muted">{CALL_TYPE_LABELS[call.type]}</td>
                   <td className="px-4 py-2.5">
                     <StatusBadge label={call.status.label} color={call.status.color} />
                   </td>

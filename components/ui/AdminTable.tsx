@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { CLICKABLE_ROW_CLASS, clickableRowProps } from "@/components/ui/clickableRow";
+import { TableSkeleton } from "@/components/ui/ListStates";
 
 export interface AdminTableColumn<T> {
   header: string;
@@ -13,7 +15,10 @@ interface AdminTableProps<T> {
   rows: T[];
   rowKey: (row: T) => string;
   isLoading: boolean;
-  emptyMessage: string;
+  /** Texte simple, ou un <EmptyState> guidé. */
+  emptyMessage: ReactNode;
+  /** Ligne cliquable (clic + Entrée) — voir clickableRowProps. */
+  onRowClick?: (row: T) => void;
 }
 
 /**
@@ -23,15 +28,19 @@ interface AdminTableProps<T> {
  * tri/filtre/pagination, non demandés et non nécessaires aux volumes de données de
  * ces écrans (quelques dizaines de lignes au plus).
  */
-export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage }: AdminTableProps<T>) {
+export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage, onRowClick }: AdminTableProps<T>) {
   return (
     <div className="rounded-lg border border-border bg-surface shadow-flat">
-      {isLoading ? (
-        <p className="p-6 text-sm text-ink-muted">Chargement…</p>
+      {isLoading && rows.length === 0 ? (
+        <TableSkeleton columns={columns.length} rows={5} />
       ) : rows.length === 0 ? (
-        <p className="p-6 text-sm text-ink-muted">{emptyMessage}</p>
+        typeof emptyMessage === "string" ? (
+          <p className="p-6 text-sm text-ink-muted">{emptyMessage}</p>
+        ) : (
+          emptyMessage
+        )
       ) : (
-        <table className="w-full text-sm">
+        <table className={cn("w-full text-sm transition-opacity", isLoading && "opacity-60")} aria-busy={isLoading}>
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-muted">
               {columns.map((col) => (
@@ -43,7 +52,11 @@ export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage }
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={rowKey(row)} className="border-b border-border last:border-0 hover:bg-surface-subtle">
+              <tr
+                key={rowKey(row)}
+                className={cn("border-b border-border last:border-0 hover:bg-surface-subtle", onRowClick && CLICKABLE_ROW_CLASS)}
+                {...(onRowClick ? clickableRowProps(() => onRowClick(row)) : {})}
+              >
                 {columns.map((col) => (
                   <td key={col.header} className={cn("px-4 py-2.5", col.className)}>
                     {col.cell(row)}

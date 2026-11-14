@@ -1,15 +1,34 @@
 "use client";
 
+import {
+  Asterisk,
+  CalendarDays,
+  Hash,
+  ListChecks,
+  Mail,
+  Pencil,
+  Phone,
+  Plus,
+  SlidersHorizontal,
+  SquareCheck,
+  SquareChevronDown,
+  TextAlignStart,
+  Type,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { AdminTable, type AdminTableColumn } from "@/components/ui/AdminTable";
-import { Button } from "@/components/ui/Button";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CustomFieldFormModal } from "@/components/admin/CustomFieldFormModal";
+import { AdminFeedback } from "@/components/admin/kit/Feedback";
+import { AdminHeader, RowsSkeleton, SearchField, StatTile } from "@/components/admin/kit/Controls";
+import { Switch } from "@/components/admin/kit/Switch";
+import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { EmptyState } from "@/components/ui/ListStates";
 import { ApiError } from "@/lib/api/client";
 import type { CustomFieldDefinitionDTO, CustomFieldType } from "@/lib/api/customFields";
 import { listDefinitions, SUPPORTED_ENTITY_TYPE, updateDefinition } from "@/lib/api/customFields";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { cn } from "@/lib/cn";
 
 const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   TEXT: "Texte court",
@@ -23,11 +42,29 @@ const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   PHONE: "Téléphone",
 };
 
+const FIELD_TYPE_ICONS: Record<CustomFieldType, LucideIcon> = {
+  TEXT: Type,
+  TEXTAREA: TextAlignStart,
+  NUMBER: Hash,
+  DATE: CalendarDays,
+  SELECT: SquareChevronDown,
+  MULTISELECT: ListChecks,
+  CHECKBOX: SquareCheck,
+  EMAIL: Mail,
+  PHONE: Phone,
+};
+
+const NO_SECTION = "Sans section";
+const OPTIONS_SHOWN = 4;
+
 /**
  * Écran d'administration §5.23 (sous-lots A + B + C — lecture, création, édition,
  * activer/désactiver). Jamais de suppression physique depuis "Désactiver" — pose
  * `isActive: false`, qui retire le champ des formulaires de saisie sans toucher aux
  * valeurs déjà écrites sur des dossiers clients (même logique que §5.22).
+ *
+ * Présentation : les champs regroupés par section, chacun avec l'icône de son type, son caractère obligatoire,
+ * ses choix éventuels et un interrupteur actif/inactif.
  */
 export default function AdminCustomFieldsPage() {
   const { authedFetch } = useAuth();
@@ -37,6 +74,7 @@ export default function AdminCustomFieldsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; definition: CustomFieldDefinitionDTO } | null>(
     null,
   );
@@ -96,80 +134,141 @@ export default function AdminCustomFieldsPage() {
     }
   }
 
-  const columns: AdminTableColumn<CustomFieldDefinitionDTO>[] = [
-    { header: "Libellé", className: "text-ink", cell: (d) => d.label },
-    { header: "Clé", className: "font-mono text-xs text-ink-faint", cell: (d) => d.key },
-    { header: "Type", className: "text-ink-muted", cell: (d) => FIELD_TYPE_LABELS[d.fieldType] },
-    { header: "Section", className: "text-ink-muted", cell: (d) => d.section ?? "—" },
-    { header: "Obligatoire", className: "text-ink-muted", cell: (d) => (d.isRequired ? "Oui" : "—") },
-    { header: "Ordre", className: "text-ink-muted", cell: (d) => d.order },
-    {
-      header: "Statut",
-      cell: (d) => (
-        <StatusBadge
-          label={d.isActive ? "Actif" : "Inactif"}
-          color={d.isActive ? "var(--color-forest-600)" : "var(--color-ink-faint)"}
-        />
-      ),
-    },
-    {
-      header: "",
-      className: "text-right",
-      cell: (d) => (
-        <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            className="text-xs font-medium text-forest-600 hover:underline"
-            onClick={() => setModal({ mode: "edit", definition: d })}
-          >
-            Modifier
-          </button>
-          <button
-            type="button"
-            className="text-xs font-medium text-status-danger hover:underline disabled:opacity-50"
-            onClick={() => handleToggleActiveClick(d)}
-            disabled={pendingId === d.id}
-          >
-            {d.isActive ? "Désactiver" : "Réactiver"}
-          </button>
-        </div>
-      ),
-    },
-  ];
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = definitions
+    .filter((d) => !normalizedQuery || `${d.label} ${d.key} ${d.section ?? ""} ${FIELD_TYPE_LABELS[d.fieldType]}`.toLowerCase().includes(normalizedQuery))
+    .sort((a, b) => a.order - b.order);
+  // Sections dans l'ordre d'apparition de leur premier champ ; « Sans section » en dernier.
+  const sections = [...new Set(visible.map((d) => d.section ?? NO_SECTION))].sort(
+    (a, b) => Number(a === NO_SECTION) - Number(b === NO_SECTION),
+  );
+  const required = definitions.filter((d) => d.isRequired && d.isActive).length;
+  const inactive = definitions.filter((d) => !d.isActive).length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-8">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Administration</p>
-          <h1 className="font-display text-2xl font-bold text-ink">Champs personnalisés</h1>
-        </div>
-        <Button onClick={() => setModal({ mode: "create" })}>Nouveau champ</Button>
-      </header>
-
-      <p className="text-sm text-ink-muted">
-        Champs additionnels affichés sur les dossiers clients, en plus des champs standards. Désactiver un champ le
-        retire des formulaires de saisie sans toucher aux valeurs déjà écrites.
-      </p>
-
-      {notice ? (
-        <p className="rounded-md border border-forest-600/30 bg-forest-600/10 px-3 py-2 text-sm text-forest-600">
-          {notice}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="rounded-md border border-status-danger/30 bg-status-danger/10 px-3 py-2 text-sm text-status-danger">
-          {error}
-        </p>
-      ) : null}
-
-      <AdminTable
-        columns={columns}
-        rows={definitions}
-        rowKey={(d) => d.id}
-        isLoading={isLoading}
-        emptyMessage="Aucun champ personnalisé."
+    <div className="space-y-6 p-6">
+      <AdminHeader
+        parent="Administration"
+        title="Champs personnalisés"
+        description="Des champs en plus sur le dossier client, propres à votre activité. Désactiver un champ le retire des formulaires sans toucher aux valeurs déjà saisies."
+        action={
+          <Button onClick={() => setModal({ mode: "create" })}>
+            <Plus size={16} aria-hidden />
+            Nouveau champ
+          </Button>
+        }
       />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatTile icon={<SlidersHorizontal size={20} />} label="Champs" value={isLoading ? "–" : definitions.length} />
+        <StatTile icon={<Asterisk size={20} />} label="Obligatoires" value={isLoading ? "–" : required} />
+        <StatTile icon={<Pencil size={20} />} label="Désactivés" value={isLoading ? "–" : inactive} />
+      </div>
+
+      {definitions.length > 5 ? (
+        <SearchField value={query} onChange={setQuery} label="Rechercher un champ" placeholder="Libellé, clé, section, type…" />
+      ) : null}
+
+      {isLoading ? (
+        <div className="rounded-lg border border-border bg-surface shadow-flat">
+          <RowsSkeleton />
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface shadow-flat">
+          {normalizedQuery ? (
+            <EmptyState title={`Aucun champ ne correspond à « ${query} ».`} />
+          ) : (
+            <EmptyState
+              title="Aucun champ personnalisé."
+              description="Ajoutez un champ (texte, date, choix…) : il apparaîtra sur chaque dossier client."
+              action={
+                <Button size="sm" onClick={() => setModal({ mode: "create" })}>
+                  Nouveau champ
+                </Button>
+              }
+            />
+          )}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {sections.map((section) => {
+            const fields = visible.filter((d) => (d.section ?? NO_SECTION) === section);
+            return (
+              <section key={section} aria-label={`Section ${section}`}>
+                <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-ink">
+                  {section}
+                  <span className="font-mono text-xs font-normal text-ink-faint">{fields.length}</span>
+                </h2>
+                <ul className="divide-y divide-border rounded-lg border border-border bg-surface shadow-flat">
+                  {fields.map((d) => {
+                    const Icon = FIELD_TYPE_ICONS[d.fieldType];
+                    return (
+                      <li
+                        key={d.id}
+                        className="app-rise group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition-colors hover:bg-surface-subtle/60"
+                      >
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-md",
+                            d.isActive ? "bg-forest-50 text-forest-600" : "bg-surface-subtle text-ink-faint",
+                          )}
+                        >
+                          <Icon size={18} strokeWidth={1.75} />
+                        </span>
+                        <div className="min-w-0 flex-1 basis-56">
+                          <p className={cn("flex items-center gap-2 text-sm font-semibold", d.isActive ? "text-ink" : "text-ink-muted")}>
+                            <span className="truncate">{d.label}</span>
+                            {d.isRequired ? (
+                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-sm bg-terracotta-500/10 px-1.5 py-0.5 text-[11px] font-medium text-terracotta-600">
+                                <Asterisk size={10} aria-hidden /> Obligatoire
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-ink-muted">
+                            {FIELD_TYPE_LABELS[d.fieldType]} · <span className="font-mono text-ink-faint">{d.key}</span>
+                          </p>
+                        </div>
+                        {d.options && d.options.length > 0 ? (
+                          <ul aria-label="Choix proposés" className="flex max-w-xs flex-wrap gap-1.5">
+                            {d.options.slice(0, OPTIONS_SHOWN).map((o) => (
+                              <li key={o} className="max-w-[9rem] truncate rounded-sm bg-surface-subtle px-2 py-0.5 text-xs text-ink-muted">
+                                {o}
+                              </li>
+                            ))}
+                            {d.options.length > OPTIONS_SHOWN ? (
+                              <li className="px-1 py-0.5 text-xs text-ink-faint">+{d.options.length - OPTIONS_SHOWN}</li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                        <div className="flex w-24 items-center gap-2">
+                          <Switch
+                            checked={d.isActive}
+                            onChange={() => handleToggleActiveClick(d)}
+                            label={`Champ « ${d.label} »`}
+                            disabled={pendingId === d.id}
+                            title={d.isActive ? "Désactiver le champ" : "Réactiver le champ"}
+                          />
+                          <span className={cn("text-xs font-medium", d.isActive ? "text-forest-600" : "text-ink-muted")}>{d.isActive ? "Actif" : "Inactif"}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setModal({ mode: "edit", definition: d })}
+                          aria-label={`Modifier « ${d.label} »`}
+                          title="Modifier"
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-forest-600 transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600"
+                        >
+                          <Pencil size={16} aria-hidden />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      )}
 
       {modal ? (
         <CustomFieldFormModal
@@ -189,6 +288,8 @@ export default function AdminCustomFieldsPage() {
           isConfirming={pendingId === deactivateTarget.id}
         />
       ) : null}
+
+      <AdminFeedback notice={notice} error={error} onDismissNotice={() => setNotice(null)} onDismissError={() => setError(null)} />
     </div>
   );
 }

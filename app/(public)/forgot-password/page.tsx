@@ -10,12 +10,11 @@ import { ApiError } from "@/lib/api/client";
 import { FORGOT_PASSWORD_SUCCESS_MESSAGE } from "@/lib/auth/messages";
 
 /**
- * Même couple (espace de travail, e-mail) que le login : un e-mail n'est unique que par organisation. Les
- * seuls échecs distingués sont ceux qui ne dépendent JAMAIS de l'existence du compte (limiteur 429,
+ * E-mail seul, comme le login : si l'adresse existe dans plusieurs organisations, le serveur envoie un
+ * lien par organisation. Les seuls échecs distingués sont ceux qui ne dépendent JAMAIS de l'existence du compte (limiteur 429,
  * réseau) : le message d'un ApiError est affiché tel quel, comme sur le login.
  */
 export default function ForgotPasswordPage() {
-  const [organizationSlug, setOrganizationSlug] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,7 +25,7 @@ export default function ForgotPasswordPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await requestPasswordResetLink({ organizationSlug, email });
+      await requestPasswordResetLink({ email });
       setIsDone(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Une erreur est survenue.");
@@ -51,14 +50,6 @@ export default function ForgotPasswordPage() {
             </p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                label="Espace de travail"
-                placeholder="demo"
-                value={organizationSlug}
-                onChange={(e) => setOrganizationSlug(e.target.value)}
-                autoComplete="organization"
-                required
-              />
               <Input
                 label="E-mail"
                 type="email"

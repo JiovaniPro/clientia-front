@@ -11,8 +11,7 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
   apiClient: { post: (...args: unknown[]) => post(...args) },
 }));
 
-function fill(slug: string, email: string) {
-  fireEvent.change(screen.getByLabelText("Espace de travail"), { target: { value: slug } });
+function fill(email: string) {
   fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: email } });
 }
 const submit = () => fireEvent.click(screen.getByRole("button", { name: "Envoyer le lien" }));
@@ -20,23 +19,23 @@ const submit = () => fireEvent.click(screen.getByRole("button", { name: "Envoyer
 describe("/forgot-password", () => {
   beforeEach(() => post.mockReset());
 
-  it("formulaire : espace de travail et e-mail, tous deux requis, comme le login", () => {
+  it("formulaire : e-mail seul (requis), plus de champ espace de travail, comme le login", () => {
     render(<ForgotPasswordPage />);
-    expect(screen.getByLabelText("Espace de travail")).toBeRequired();
+    expect(screen.queryByLabelText("Espace de travail")).not.toBeInTheDocument();
     expect(screen.getByLabelText("E-mail")).toBeRequired();
     expect(screen.getByLabelText("E-mail")).toHaveAttribute("type", "email");
     expect(screen.getByRole("link", { name: "Retour à la connexion" })).toHaveAttribute("href", "/login");
   });
 
-  it("soumet POST /auth/forgot-password avec { organizationSlug, email } (sans jeton d'accès) puis affiche le message générique", async () => {
+  it("soumet POST /auth/forgot-password avec { email } (sans jeton d'accès) puis affiche le message générique", async () => {
     post.mockResolvedValue({ message: FORGOT_PASSWORD_SUCCESS_MESSAGE });
     render(<ForgotPasswordPage />);
-    fill("demo", "alix@demo.clientia.app");
+    fill("alix@demo.clientia.app");
     submit();
 
     expect(await screen.findByText("Si un compte existe avec cet e-mail, un lien a été envoyé.")).toBeInTheDocument();
     expect(post).toHaveBeenCalledTimes(1);
-    expect(post).toHaveBeenCalledWith("/auth/forgot-password", { organizationSlug: "demo", email: "alix@demo.clientia.app" });
+    expect(post).toHaveBeenCalledWith("/auth/forgot-password", { email: "alix@demo.clientia.app" });
     expect(screen.queryByRole("button", { name: "Envoyer le lien" })).not.toBeInTheDocument();
   });
 
@@ -55,7 +54,7 @@ describe("/forgot-password", () => {
       post.mockReset();
       post.mockResolvedValue(body);
       const { container, unmount } = render(<ForgotPasswordPage />);
-      fill("demo", "quelquun@exemple.test");
+      fill("quelquun@exemple.test");
       submit();
       await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
       rendered.push(screen.getByRole("status").textContent ?? "");
@@ -69,7 +68,7 @@ describe("/forgot-password", () => {
 
   it("échecs qui ne dépendent JAMAIS de l'existence du compte (429, réseau) : pas de faux succès, message d'erreur, formulaire conservé", async () => {
     render(<ForgotPasswordPage />);
-    fill("demo", "alix@demo.clientia.app");
+    fill("alix@demo.clientia.app");
 
     post.mockRejectedValueOnce(new ApiError(429, "Trop de requêtes, réessayez plus tard"));
     submit();

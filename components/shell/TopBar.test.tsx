@@ -5,15 +5,24 @@ import { TopBar } from "./TopBar";
 const push = vi.fn();
 const authedFetch = vi.fn();
 const logout = vi.fn();
+const switchOrganization = vi.fn();
 let permissions: string[] = [];
+let organizations: { slug: string; name: string; current: boolean }[] = [];
 
 vi.mock("next/link", () => ({
   default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => <a href={href} {...rest}>{children}</a>,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), usePathname: () => "/calls" }));
-const user = { id: "u1", firstName: "Camille", lastName: "Calliste", email: "c@x", roleName: "Agent calliste" };
+const user = {
+  id: "u1",
+  firstName: "Camille",
+  lastName: "Calliste",
+  email: "c@x",
+  roleName: "Agent calliste",
+  organization: { id: "o1", name: "Alpha Conseil", slug: "alpha" },
+};
 vi.mock("@/lib/auth/AuthContext", () => ({
-  useAuth: () => ({ user, logout, authedFetch, hasPermission: (k: string) => permissions.includes(k) }),
+  useAuth: () => ({ user, logout, authedFetch, organizations, switchOrganization, hasPermission: (k: string) => permissions.includes(k) }),
 }));
 
 beforeEach(() => {
@@ -21,6 +30,8 @@ beforeEach(() => {
   push.mockReset();
   logout.mockReset();
   logout.mockResolvedValue(undefined);
+  switchOrganization.mockReset();
+  organizations = [];
 });
 
 describe("TopBar", () => {
@@ -85,6 +96,30 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Se déconnecter" }));
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
+  });
+});
+
+describe("TopBar — changement d'organisation", () => {
+  it("une seule organisation : aucune entrée « Changer d'organisation »", () => {
+    organizations = [{ slug: "alpha", name: "Alpha Conseil", current: true }];
+    render(<TopBar />);
+    fireEvent.click(screen.getByRole("button", { name: "Menu du compte" }));
+    expect(screen.queryByText("Changer d'organisation")).toBeNull();
+  });
+
+  it("plusieurs organisations : les autres sont proposées dans le menu de l'avatar, un clic bascule", async () => {
+    organizations = [
+      { slug: "alpha", name: "Alpha Conseil", current: true },
+      { slug: "beta", name: "Beta Courtage", current: false },
+    ];
+    switchOrganization.mockResolvedValue(undefined);
+    render(<TopBar />);
+    fireEvent.click(screen.getByRole("button", { name: "Menu du compte" }));
+
+    expect(screen.getByText("Changer d'organisation")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Alpha Conseil" })).toBeNull(); // l'organisation ouverte n'est pas proposée
+    fireEvent.click(screen.getByRole("menuitem", { name: "Beta Courtage" }));
+    await waitFor(() => expect(switchOrganization).toHaveBeenCalledWith("beta"));
   });
 });
 

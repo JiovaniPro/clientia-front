@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import PlatformOrganizationsPage from "./page";
 
 const nav = vi.hoisted(() => ({ query: "" }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(nav.query) }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(nav.query),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
 const auth = vi.hoisted(() => ({ authedFetch: (fn: (token: string) => unknown) => fn("token") }));
 vi.mock("@/lib/auth/PlatformAuthContext", () => ({ usePlatformAuth: () => auth }));
 const api = vi.hoisted(() => ({ setOrganizationStatus: vi.fn() }));
@@ -51,5 +54,23 @@ describe("Liste des organisations — actions", () => {
     const suspendedRow = screen.getByText("Org Suspendue").closest("tr")!;
     expect(within(activeRow).queryByRole("button", { name: "Supprimer" })).toBeNull();
     expect(within(suspendedRow).getByRole("button", { name: "Supprimer" })).toBeInTheDocument();
+  });
+});
+
+describe("Liste des organisations — recherche", () => {
+  it("filtre par nom sans tenir compte des accents ni de la casse ; aucun résultat : état vide qui propose d'effacer", async () => {
+    nav.query = "";
+    render(<PlatformOrganizationsPage />);
+    await screen.findByText("Org Active");
+    const search = screen.getByRole("searchbox", { name: /Rechercher une organisation/ });
+
+    fireEvent.change(search, { target: { value: "SUSPÉNDUE" } });
+    expect(screen.getByText("Org Suspendue")).toBeInTheDocument();
+    expect(screen.queryByText("Org Active")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "introuvable" } });
+    expect(screen.getByText("Aucune organisation ne correspond à « introuvable »")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Effacer la recherche" })[0]!);
+    expect(screen.getByText("Org Active")).toBeInTheDocument();
   });
 });

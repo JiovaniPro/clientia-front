@@ -26,3 +26,30 @@ describe("OrganizationFormModal — invitation au lieu d'un mot de passe", () =>
     expect(payload).toEqual({ organizationName: "Org", organizationSlug: "org", adminEmail: "a@b.fr" });
   });
 });
+
+describe("OrganizationFormModal — identifiant et validation", () => {
+  it("l'identifiant suit le nom (accents et ponctuation retirés) tant qu'il n'est pas modifié à la main", () => {
+    render(<OrganizationFormModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByLabelText("Nom de l'organisation");
+    const slug = screen.getByLabelText("Identifiant de l'espace de travail");
+
+    fireEvent.change(name, { target: { value: "Cabinet Dupont & Fils — Genève" } });
+    expect(slug).toHaveValue("cabinet-dupont-fils-geneve");
+
+    fireEvent.change(slug, { target: { value: "dupont" } });
+    fireEvent.change(name, { target: { value: "Autre nom" } });
+    expect(slug).toHaveValue("dupont");
+  });
+
+  it("champs requis vides ou invalides : erreurs sous chaque champ, aucun appel API", async () => {
+    api.createOrganization.mockClear();
+    render(<OrganizationFormModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Identifiant de l'espace de travail"), { target: { value: "Pas Valide!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Créer" }));
+
+    expect(await screen.findByText("Indiquez le nom de l'organisation.")).toBeInTheDocument();
+    expect(screen.getByText("Lettres minuscules, chiffres et tirets uniquement.")).toBeInTheDocument();
+    expect(screen.getByText("Indiquez l'e-mail de l'administrateur.")).toBeInTheDocument();
+    expect(api.createOrganization).not.toHaveBeenCalled();
+  });
+});

@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { AGENT_RDV_NAV_ITEMS, isAgentRdvNavProfile, isNavItemVisible, NAV_ITEMS } from "@/lib/nav/navItems";
 import type { NavItem } from "@/lib/nav/navItems";
 import { Logo } from "@/components/brand/Logo";
+import { OrganizationSwitcher } from "@/components/shell/OrganizationSwitcher";
 
 const STORAGE_KEY = "clientia:rail-collapsed";
 
@@ -82,6 +83,7 @@ export function SideRail() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-3 pt-4" aria-label="Navigation principale">
+        <OrganizationSwitcher collapsed={collapsed} />
         <button
           type="button"
           onClick={openCommandPalette}

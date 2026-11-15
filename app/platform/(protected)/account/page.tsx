@@ -1,7 +1,10 @@
 "use client";
 
+import { ChevronRight, KeyRound } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import type { FormEvent } from "react";
+import { PlatformNotice, PlatformPage, PlatformPageHeader } from "@/components/platform/PlatformPage";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api/client";
@@ -23,15 +26,17 @@ export default function PlatformAccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const { markClean } = useUnsavedChangesGuard({ name, email });
+  const isDirty = name !== (platformAdmin?.name ?? "") || email !== (platformAdmin?.email ?? "");
 
-  async function handleSave() {
+  async function handleSave(event: FormEvent) {
+    event.preventDefault();
     if (!platformAdmin) return;
     setError(null);
     setSuccess(false);
     setIsSaving(true);
     try {
       const updated = await authedFetch((token) =>
-        updatePlatformProfile(platformAdmin.id, { name: name || undefined, email }, token),
+        updatePlatformProfile(platformAdmin.id, { name: name.trim() || undefined, email: email.trim() }, token),
       );
       setPlatformAdmin({ ...platformAdmin, email: updated.email, name: updated.name });
       markClean();
@@ -44,44 +49,51 @@ export default function PlatformAccountPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-8">
-      <header>
-        <p className="font-mono text-xs uppercase tracking-wide text-ink-muted">Console Super Admin</p>
-        <h1 className="font-display text-2xl font-bold text-ink">Mon compte</h1>
-      </header>
+    <PlatformPage narrow>
+      <PlatformPageHeader title="Mon compte" description="Vos informations de connexion à la console plateforme." />
 
-      <div className="space-y-4 rounded-lg border border-border bg-surface p-5 shadow-flat">
-        <h2 className="font-display text-lg font-semibold text-ink">Informations</h2>
-        <Input label="Nom" value={name} onChange={(e) => setName(e.target.value)} />
+      {success ? (
+        <PlatformNotice tone="success" onDismiss={() => setSuccess(false)}>
+          Informations mises à jour.
+        </PlatformNotice>
+      ) : null}
+
+      <form onSubmit={handleSave} className="space-y-4 rounded-lg border border-border bg-surface p-5 shadow-flat">
+        <h2 className="text-base font-semibold text-ink">Informations</h2>
+        <Input label="Nom" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
         <Input
           label="E-mail (identifiant de connexion)"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          required
         />
 
-        {error ? <p className="text-sm text-status-danger">{error}</p> : null}
-        {success ? <p className="text-sm text-status-success">Informations mises à jour.</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-status-danger">
+            {error}
+          </p>
+        ) : null}
 
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={isSaving}>
+        <div className="flex justify-end border-t border-border pt-4">
+          <Button type="submit" disabled={isSaving || !isDirty} aria-busy={isSaving}>
             {isSaving ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </div>
-      </div>
+      </form>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface p-5 shadow-flat">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-ink">Mot de passe</h2>
-          <p className="text-xs text-ink-muted">Vos autres sessions actives seront déconnectées — celle-ci reste active.</p>
-        </div>
-        <Link
-          href="/platform/change-password"
-          className="shrink-0 text-sm font-medium text-forest-600 underline-offset-2 hover:underline"
-        >
-          Changer le mot de passe
-        </Link>
-      </div>
-    </div>
+      <Link
+        href="/platform/change-password"
+        className="group flex items-center gap-4 rounded-lg border border-border bg-surface p-5 shadow-flat transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600"
+      >
+        <KeyRound size={18} strokeWidth={1.75} aria-hidden className="shrink-0 text-ink-muted" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold text-ink">Mot de passe</span>
+          <span className="block text-sm text-ink-muted">Changer le mot de passe : vos autres sessions seront déconnectées, celle-ci reste active.</span>
+        </span>
+        <ChevronRight size={16} aria-hidden className="shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5" />
+      </Link>
+    </PlatformPage>
   );
 }

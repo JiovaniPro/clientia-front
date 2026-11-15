@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 
 interface ModalProps {
@@ -24,6 +24,7 @@ const openModals: object[] = [];
 
 export function Modal({ title, onClose, children, widthClassName = "max-w-md", closeDisabled = false }: ModalProps) {
   const [token] = useState(() => ({}));
+  const titleId = useId();
 
   useEffect(() => {
     openModals.push(token);
@@ -47,11 +48,16 @@ export function Modal({ title, onClose, children, widthClassName = "max-w-md", c
       onClick={closeDisabled ? undefined : onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={`w-full ${widthClassName} rounded-lg border border-border bg-surface shadow-raised`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-          <h2 className="font-display text-lg font-semibold text-ink">{title}</h2>
+          <h2 id={titleId} className="font-display text-lg font-semibold text-ink">
+            {title}
+          </h2>
           <button
             type="button"
             onClick={onClose}

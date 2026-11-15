@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Building2, Check, CircleAlert, Loader2, Lock, Mail } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, Loader2, Lock, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -23,15 +23,18 @@ const rise = (delay: number) => ({ "--delay": `${delay}ms` }) as React.CSSProper
  * formulaire seul en dessous. Retours immédiats : e-mail vérifié à la sortie du champ,
  * avertissement verrouillage majuscules, bouton à trois états (repos, envoi, réussite),
  * erreur du serveur annoncée (role="alert") et affichée telle quelle.
+ *
+ * Pas de champ « espace de travail » : le serveur retrouve l'organisation à partir de l'e-mail et du mot de
+ * passe. Si plusieurs organisations correspondent, il ouvre la dernière utilisée ; les autres sont accessibles
+ * ensuite par le sélecteur d'organisation (rail gauche, menu de l'avatar). `?org=` dans l'URL fixe l'organisation.
  */
 function LoginForm() {
   const { login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialOrg = searchParams.get("org") ?? "";
+  const presetOrg = searchParams.get("org")?.trim() || undefined;
   const initialEmail = searchParams.get("email") ?? "";
 
-  const [organizationSlug, setOrganizationSlug] = useState(initialOrg);
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | undefined>();
@@ -46,7 +49,7 @@ function LoginForm() {
     setError(null);
     setStatus("submitting");
     try {
-      await login({ organizationSlug: organizationSlug.trim(), email: email.trim(), password });
+      await login({ organizationSlug: presetOrg, email: email.trim(), password });
       setStatus("success");
       router.push("/");
     } catch (err) {
@@ -54,6 +57,7 @@ function LoginForm() {
       setStatus("idle");
     }
   }
+
 
   function trackCapsLock(event: KeyboardEvent<HTMLInputElement>) {
     setCapsLock(event.getModifierState("CapsLock"));
@@ -82,26 +86,11 @@ function LoginForm() {
           <div className="mx-auto w-full max-w-[26rem]">
             <h1 className="landing-rise font-display text-3xl leading-[1.12] text-ink sm:text-[2.6rem]">Content de vous revoir.</h1>
             <p className="landing-rise mt-4 text-base leading-relaxed text-ink-muted" style={rise(70)}>
-              Connectez-vous à l&apos;espace de travail de votre organisation.
+              Connectez-vous avec l&apos;adresse e-mail de votre invitation.
             </p>
 
             <form onSubmit={handleSubmit} className="mt-9 space-y-5">
               <div className="landing-rise" style={rise(140)}>
-                <Input
-                  label="Espace de travail"
-                  icon={Building2}
-                  placeholder="demo"
-                  value={organizationSlug}
-                  onChange={(e) => setOrganizationSlug(e.target.value)}
-                  autoComplete="organization"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  autoFocus={!initialOrg}
-                  required
-                  className={FIELD}
-                />
-              </div>
-              <div className="landing-rise" style={rise(200)}>
                 <Input
                   label="E-mail"
                   icon={Mail}
@@ -114,12 +103,12 @@ function LoginForm() {
                   onBlur={() => setEmailError(email && !EMAIL_SHAPE.test(email.trim()) ? "Cette adresse e-mail semble incomplète." : undefined)}
                   error={emailError}
                   autoComplete="email"
-                  autoFocus={Boolean(initialOrg) && !initialEmail}
+                  autoFocus={!initialEmail}
                   required
                   className={FIELD}
                 />
               </div>
-              <div className="landing-rise" style={rise(260)}>
+              <div className="landing-rise" style={rise(200)}>
                 <Input
                   label="Mot de passe"
                   icon={Lock}
@@ -130,7 +119,7 @@ function LoginForm() {
                   onKeyUp={trackCapsLock}
                   onBlur={() => setCapsLock(false)}
                   autoComplete="current-password"
-                  autoFocus={Boolean(initialOrg) && Boolean(initialEmail)}
+                  autoFocus={Boolean(initialEmail)}
                   required
                   className={FIELD}
                 />

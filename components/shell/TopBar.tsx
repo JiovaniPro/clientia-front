@@ -1,11 +1,12 @@
 "use client";
 
-import { Bell, ChevronDown, LogOut, Moon, Sun, UserCog } from "lucide-react";
+import { ArrowLeftRight, Bell, ChevronDown, Loader2, LogOut, Moon, Sun, UserCog } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { NotificationsDrawer } from "@/components/shell/NotificationsDrawer";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isDarkTheme, setDarkTheme } from "@/lib/theme";
@@ -17,7 +18,9 @@ import { isDarkTheme, setDarkTheme } from "@/lib/theme";
  */
 export function TopBar({ showNotificationsBadge = false }: { showNotificationsBadge?: boolean }) {
   const router = useRouter();
-  const { user, hasPermission, logout } = useAuth();
+  const { user, hasPermission, logout, organizations, switchOrganization } = useAuth();
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [dark, setDark] = useState(isDarkTheme);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -55,6 +58,19 @@ export function TopBar({ showNotificationsBadge = false }: { showNotificationsBa
     }
   }
 
+  /** Changement d'organisation : la page est rechargée en cas de succès (voir AuthContext.switchOrganization). */
+  async function handleSwitch(slug: string) {
+    setSwitchError(null);
+    setSwitching(slug);
+    try {
+      await switchOrganization(slug);
+    } catch (err) {
+      setSwitchError(err instanceof ApiError ? err.message : "Changement d'organisation impossible.");
+      setSwitching(null);
+    }
+  }
+
+  const otherOrganizations = organizations.filter((org) => !org.current);
   const fullName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
   const displayName = fullName || user.email;
   const initials = (`${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}` || user.email[0] || "?").toUpperCase();
@@ -127,8 +143,37 @@ export function TopBar({ showNotificationsBadge = false }: { showNotificationsBa
             >
               <div className="border-b border-border px-3 py-2.5">
                 <p className="truncate text-sm font-medium text-ink">{displayName}</p>
-                <p className="truncate text-xs text-ink-muted">{user.roleName}</p>
+                <p className="truncate text-xs text-ink-muted">
+                  {user.roleName} · {user.organization.name}
+                </p>
               </div>
+              {otherOrganizations.length > 0 ? (
+                <div className="border-b border-border py-1">
+                  <p className="px-3 pb-0.5 pt-1.5 text-xs font-medium text-ink-faint">Changer d&apos;organisation</p>
+                  {otherOrganizations.map((org) => (
+                    <button
+                      key={org.slug}
+                      type="button"
+                      role="menuitem"
+                      disabled={switching !== null}
+                      onClick={() => void handleSwitch(org.slug)}
+                      className={menuItemClass}
+                    >
+                      {switching === org.slug ? (
+                        <Loader2 size={16} aria-hidden className="animate-spin text-ink-muted" />
+                      ) : (
+                        <ArrowLeftRight size={16} aria-hidden className="text-ink-muted" />
+                      )}
+                      <span className="min-w-0 truncate">{org.name}</span>
+                    </button>
+                  ))}
+                  {switchError ? (
+                    <p role="alert" className="px-3 py-1.5 text-xs text-status-danger">
+                      {switchError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="pt-1">
                 <Link href="/account" role="menuitem" onClick={() => setMenuOpen(false)} className={menuItemClass}>
                   <UserCog size={16} aria-hidden className="text-ink-muted" />

@@ -19,6 +19,8 @@ interface AdminTableProps<T> {
   emptyMessage: ReactNode;
   /** Ligne cliquable (clic + Entrée) — voir clickableRowProps. */
   onRowClick?: (row: T) => void;
+  /** Classes supplémentaires d'une ligne (ex. ligne sélectionnée). */
+  rowClassName?: (row: T) => string | undefined;
 }
 
 /**
@@ -28,7 +30,7 @@ interface AdminTableProps<T> {
  * tri/filtre/pagination, non demandés et non nécessaires aux volumes de données de
  * ces écrans (quelques dizaines de lignes au plus).
  */
-export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage, onRowClick }: AdminTableProps<T>) {
+export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage, onRowClick, rowClassName }: AdminTableProps<T>) {
   return (
     <div className="rounded-lg border border-border bg-surface shadow-flat">
       {isLoading && rows.length === 0 ? (
@@ -54,7 +56,7 @@ export function AdminTable<T>({ columns, rows, rowKey, isLoading, emptyMessage, 
             {rows.map((row) => (
               <tr
                 key={rowKey(row)}
-                className={cn("border-b border-border last:border-0 hover:bg-surface-subtle", onRowClick && CLICKABLE_ROW_CLASS)}
+                className={cn("border-b border-border last:border-0 hover:bg-surface-subtle", onRowClick && CLICKABLE_ROW_CLASS, rowClassName?.(row))}
                 {...(onRowClick ? clickableRowProps(() => onRowClick(row)) : {})}
               >
                 {columns.map((col) => (

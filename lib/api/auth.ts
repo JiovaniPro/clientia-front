@@ -10,7 +10,7 @@ export function confirmPasswordReset(token: string, newPassword: string) {
  * Public — POST /auth/forgot-password. Le backend répond TOUJOURS 202 avec un message fixe, que le compte
  * existe ou non : la réponse n'est volontairement PAS retournée (l'écran ne doit jamais l'interpréter).
  */
-export async function requestPasswordResetLink(input: { organizationSlug: string; email: string }): Promise<void> {
+export async function requestPasswordResetLink(input: { email: string; organizationSlug?: string }): Promise<void> {
   await apiClient.post<unknown>("/auth/forgot-password", input);
 }
 

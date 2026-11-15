@@ -5,7 +5,11 @@ import PlatformOrganizationDetailPage from "./page";
 
 const api = vi.hoisted(() => ({ getOrganization: vi.fn(), deleteOrganization: vi.fn(), setOrganizationStatus: vi.fn() }));
 
-vi.mock("next/navigation", () => ({ useParams: () => ({ id: "org-1" }) }));
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: "org-1" }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 // Référence stable : une nouvelle fonction à chaque rendu relancerait le chargement en boucle (useCallback).
 const auth = vi.hoisted(() => ({ authedFetch: (fn: (token: string) => unknown) => fn("token") }));
 vi.mock("@/lib/auth/PlatformAuthContext", () => ({ usePlatformAuth: () => auth }));
@@ -58,7 +62,8 @@ describe("Détail organisation — suppression", () => {
 
   it("organisation supprimée : lecture seule, ni suspendre/réactiver ni supprimer", async () => {
     await renderWith({ isActive: false, deletedAt: "2026-10-01T08:00:00.000Z" });
-    expect(screen.getByText("Organisation supprimée · lecture seule")).toBeInTheDocument();
+    expect(screen.getByText(/Supprimée le .* — lecture seule/)).toBeInTheDocument();
+    expect(screen.getByText("Supprimée", { selector: "span" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Supprimer" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Réactiver" })).toBeNull();
   });

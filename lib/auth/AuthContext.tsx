@@ -15,13 +15,23 @@ export interface AuthUser {
   organization: { id: string; name: string; slug: string };
 }
 
+/** Organisation accessible depuis la session (compte vérifié à la connexion) ; `current` = celle ouverte. */
+export interface SessionOrganization {
+  slug: string;
+  name: string;
+  current: boolean;
+}
+
 interface AuthPayload {
   accessToken: string;
   user: AuthUser;
+  /** Absent des réponses d'un serveur plus ancien : traité comme une seule organisation. */
+  organizations?: SessionOrganization[];
 }
 
 interface LoginInput {
-  organizationSlug: string;
+  /** Facultatif : le serveur retrouve l'organisation par l'e-mail (la dernière utilisée si plusieurs). */
+  organizationSlug?: string;
   email: string;
   password: string;
 }
@@ -31,6 +41,10 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  /** Organisations accessibles depuis la session ; plus d'une : le sélecteur d'organisation s'affiche. */
+  organizations: SessionOrganization[];
+  /** Ouvre l'autre organisation (nouvelle session côté serveur), puis recharge l'application sur l'accueil. */
+  switchOrganization: (slug: string) => Promise<void>;
   hasPermission: (key: string) => boolean;
   /** §5.11 — applique un `AuthUser` déjà à jour (ex. après PATCH /auth/me), sans
    * toucher au token d'accès ni au cycle refresh : ce n'est pas une nouvelle
@@ -44,6 +58,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [organizations, setOrganizations] = useState<SessionOrganization[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const accessTokenRef = useRef<string | null>(null);
 
@@ -68,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     generationRef.current += 1;
     accessTokenRef.current = payload.accessToken;
     setUser(payload.user);
+    setOrganizations(payload.organizations ?? []);
     setIsLoading(false);
   }, []);
 
@@ -75,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     generationRef.current += 1;
     accessTokenRef.current = null;
     setUser(null);
+    setOrganizations([]);
     setIsLoading(false);
   }, []);
 
@@ -151,6 +168,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [commitAuthPayload, clearAuth, doRefresh],
   );
 
+  /**
+   * Rechargement complet après le changement : toutes les données affichées appartiennent à l'ancienne
+   * organisation (listes, compteurs, caches de page). Le nouveau cookie de refresh est déjà posé, donc le
+   * refresh silencieux au montage ouvre directement la nouvelle organisation.
+   */
+  const switchOrganization = useCallback(
+    async (slug: string) => {
+      const payload = await authedFetch((token) =>
+        apiClient.post<AuthPayload>("/auth/switch-organization", { organizationSlug: slug }, token),
+      );
+      commitAuthPayload(payload);
+      // Rechargement complet VOULU (pas router.push) : aucun état client de l'ancienne organisation ne doit survivre.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/");
+    },
+    [authedFetch, commitAuthPayload],
+  );
+
   const hasPermission = useCallback((key: string) => user?.permissions.includes(key) ?? false, [user]);
 
   const updateUser = useCallback((updated: AuthUser) => {
@@ -158,8 +193,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, isLoading, login, logout, hasPermission, authedFetch, updateUser }),
-    [user, isLoading, login, logout, hasPermission, authedFetch, updateUser],
+    () => ({ user, isLoading, login, logout, organizations, switchOrganization, hasPermission, authedFetch, updateUser }),
+    [user, isLoading, login, logout, organizations, switchOrganization, hasPermission, authedFetch, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
